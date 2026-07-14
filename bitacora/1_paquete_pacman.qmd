@@ -1,0 +1,120 @@
+---
+title: "Paquete `pacman`"
+date: today
+format: html
+---
+
+La guía introductoria del paquete `pacman` <https://trinker.github.io/pacman/vignettes/Introduction_to_pacman.html> menciona que `p_load` simplica el uso de `install.packages` + `library`. Entonces, ¿cómo cargar `pacman` por primera vez?
+
+```{{r}}
+p_load(pacman)
+```
+
+El usuario del sitio web <https://medium.com/tacosdedatos/usando-r-para-sacar-informaci%C3%B3n-de-los-microdatos-del-inegi-b21b6946cf4f> lo hace de esta manera
+
+```{{r}}
+# Librerías ====
+if(!require('pacman')) install.packages('pacman')
+pacman::p_load(tidyverse, srvyr,
+               kableExtra)
+```
+
+¿Qué significa el operador `!`? Recuerdo que representa el operador lógico `NO`. Por tanto, dicha instrucción establece que si NO se ejecuta la función `require` se instale el paquete `pacman`. Se valida con IA.
+
+Se hace el intento con un paquete no instalado, por ejemplo el paquete `dbi` relacionado a la ejecución de sintaxis SQL en R.
+
+```{r}
+system.file(package = "DBI")
+system.file(package = "dbplyr")
+```
+
+Como se observa, no aparece nada. Se hace el intento con `require`, en teoría arrojará error
+
+```{r}
+require(dbi)
+```
+
+Bueno, en específico arroja un mensaje de advertencia. Ahora se valida con el operador NO
+
+```{r}
+!require(dbi)
+```
+
+En efecto, el operador NO invierte el resultado obtenido y precisamente por eso lo utiliza el usuario Pacheco Castro (2021) para simplificar el operador condicional SI. Es decir, si ejecutar la función `require` devuelve `FALSE` y, enseguida, el operador NO lo convierte a `TRUE` ENTONCES ejecuta la instalación del paquete. La duda que me queda es por qué no utiliza las llaves? Supuestamente la sintaxis para el operador condicional SI requiere las llaves, se valida.
+
+```{r}
+if(5 > 2){"SÍ"} else {"NO"}
+```
+
+De acuerdo a (Grolemund, 2015: 120-130), la sintaxis para el operador `if` es el siguiente
+
+```{{r}}
+if (condición) {
+  operaciones
+}
+```
+
+Quizá Pacheco Castro lo hace ya que es una sola instrucción en una sola línea, validemos
+
+```{r}
+if(5 > 2) "SÍ"
+```
+
+En efecto, si permite ejecutarse cuando es una sola línea ¿cuándo son dos o más?
+
+```{r}
+if (5 > 2) "SÍ"; 5 + 2; 3**2
+```
+
+Al parecer sí permite ¿qué pasa si se añade `else`?
+
+```{{r}}
+if (5 > 2) "SÍ"; 5 + 2; 3**2;
+else "NO"
+```
+
+Ahora sí arroja error. Siguiendo con la guía de estilo de Wickham <http://adv-r.had.co.nz/Style.html> sugiere utilizar la sintaxis en su totalidad, por tanto quedaría así
+
+```{r}
+if (5 > 2) {
+  "SÍ"
+}
+```
+
+Por tanto,
+
+```{r}
+if (!require(dbi)) {"SÍ"}
+```
+
+O bien?
+
+```{r}
+if (require(dbi) == FALSE) {"SÍ"}
+```
+
+Recordemos que el operador SÍ devuelve TRUE si se cumple la condición
+
+Es decir,
+
+```{r}
+# if (!require(dbi)) {"SÍ"}
+# es igual a
+if (require(dbi) == FALSE) {"SÍ"} else {"NO"}
+```
+
+Así pues,
+
+```{r}
+# si no carga el paquete
+if (require(pacman) == FALSE) {
+  # lo instala
+  install.packages("pacman")
+} else {
+  # caso contrario utiliza la función
+  pacman::p_load(tidyverse, srvyr, kableExtra)
+}
+```
+
+Listo!
+

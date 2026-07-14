@@ -1,0 +1,58 @@
+---
+title: "Paquete importinegi"
+format: html
+---
+
+Ahora se valida el paquete importinegi
+
+```{r}
+#| label: setup
+#| message: false
+#| warning: false
+
+# si no carga el paquete
+if (require(pacman) == FALSE) {
+  # lo instala
+  install.packages("pacman")
+  # caso contrario
+} else {
+  # utiliza la función de dicho paquete
+  pacman::p_load(tidyverse, importinegi)
+}
+```
+
+Se instala dicho paquete
+
+```{r}
+# pacman::p_load(importinegi)
+```
+
+Se valida versión
+
+```{r}
+pacman::p_version("importinegi")
+```
+
+Es la versión actual según la documentación <https://cran.r-project.org/web/packages/importinegi/index.html>
+
+Validemos
+
+```{r}
+importinegi::enoe(year = 2026, trimestre = "trim1", integrar = FALSE)
+```
+
+Arrojar error, según la documentación de dicho paquete, ejecuta correctamente la versión disponible en CRAN. Se valida 
+
+```{r}
+pacman::p_information("importinegi")
+```
+
+Sí se instaló directamente en CRAN, pero a pesar de aquello arroja error. Se valida directorio temporal
+
+```{r}
+list.files(tempdir())
+
+```
+
+No aparece ni el archivo descargado. Quizá el problema sea por el tema del tiempo máximo de espera. Se deja para después. 
+

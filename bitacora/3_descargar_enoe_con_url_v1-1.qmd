@@ -1,0 +1,1369 @@
+---
+title: "Modos de obtener microdatos de la ENOE"
+date: "26-07-03"
+format: html
+---
+
+## Introducción
+
+Este documento tiene como objetivo hacer un compendio breve de las distintas maneras en las que se puede descargar los microdatos de la ENOE. Hasta el momento identifico tres modos de obtener los microdatos de la ENOE:
+
+1. Descargar los microdatos y exportarlos a R
+2. Por medio de URL
+3. Paquete `importinegi`
+
+La opción 1 es, por decirlo de una manera, la forma más fácil de descargar los datos. La desventaja que se identifica es que el proyecto adquiere mayor tamaño por dichos archivos.
+
+Por su parte, la opción 2 al principio no están fácil, pero una vez que se familiariza con el código es sencillo de aplicar. En este caso, los microdatos se descargan directamente del sitio web del INEGI. Así, facilita la reproducibilidad donde el único dato de entrada sería la liga. La duda que tengo al respecto es al momento de ejecutar el script, ¿podría arrojar una ventana donde el usuario inserte la liga correspondiente? Tipo Visual Basic o Macro de Excel, que digamos es lo mismo.
+
+Mientras que, la opción 3 recuerdo que no se pudieron descargar los microdatos la última vez que lo utilice. 
+
+A continuación, se describen los modos 2 y 3.
+
+### Librerías requeridas
+
+```{r}
+#| label: setup
+#| message: false
+#| warning: false
+
+# si no carga el paquete
+if (require(pacman) == FALSE) {
+  # lo instala
+  install.packages("pacman")
+  # caso contrario
+} else {
+  # utiliza la función de dicho paquete
+  pacman::p_load(tidyverse, srvyr, kableExtra)
+}
+```
+
+## Modo 1: URL
+
+Se toma como referencia el código desarrollado por Pacheco Castro (2021):
+
+```{{r}}
+#Descarga de archivos
+url<-"https://www.inegi.org.mx/contenidos/programas/enigh/nc/2018/microdatos/enigh2018_ns_viviendas_csv.zip"
+##Creación de directorio temporal
+td<- tempdir()
+# Descarga del archivo temporal
+tf = tempfile(tmpdir=td, fileext=".zip")
+download.file(url, tf)
+# unzip
+unzip(tf, files="viviendas.csv", exdir=td, 
+      overwrite=TRUE)
+fpath=file.path(td,"viviendas.csv")
+unlink(td)
+
+#Leer el archivo
+enigh<-read.csv(fpath)%>%
+  #Renombrar folioviv
+  rename(folioviv=1)
+```
+
+Y Martínez Sánchez (2017):
+
+```{{r}}
+temporal <- tempfile()
+download.file("http://www.beta.inegi.org.mx/contenidos/proyectos/enchogares/regulares/enoe/microdatos/enoe_15ymas/2016/2016trim1_dbf.zip",temporal)
+files = unzip(temporal, list=TRUE)$Name
+unzip(temporal, files=files[grepl("dbf",files)])
+SDEMT116 <- data.frame(read.dbf("sdemt116.dbf"))
+```
+
+Vamos a intentar probar el código de Martínez Sánchez (2017).
+
+```{r}
+tempfile()
+tempfile()
+```
+
+`tempfile` crea un archivo temporal, como se observa cada vez que se llama crea distintos archivos temporales. Recordemos que `download.file` requiere, entre otros, la liga y la ruta donde se almacenará el archivo descargado.
+
+```{r}
+archivo <- tempfile() 
+download.file("https://www.inegi.org.mx/contenidos/programas/enoe/15ymas/microdatos/enoe_2026_trim1_csv.zip", archivo)
+```
+
+Se valida
+
+```{r}
+archivo
+```
+
+Esa es la ubicación del archivo descargado, pero aún no descomprimido
+
+```{r}
+unzip(archivo, list = TRUE)
+```
+
+La función `unzip` junto con el argumento `list = TRUE` no extrae los archivos especificados, solamente devuelve una lista de dichos archivos, junto con el tamaño y fecha. Por eso, 
+
+```{r}
+unzip(archivo, list = TRUE)$Name
+```
+
+Solamente devuelve los valores contenidos en la columna especificada después del signo de peso. Después inserta el siguiente código:
+
+```{{r}}
+unzip(temporal, files=files[grepl("dbf",files)])
+```
+
+Donde `base::grepl` busca valores especificados que estén en la variable especificada, recuerda de forma vectorizada. En específico, devuelve un valor lógico VERDADERO si existe coincidencia y FALSO en caso contrario.
+
+```{r}
+grepl("fas", "asd")
+grepl("hola", "mundo hola")
+```
+
+Así pues, dentro del argumento `files` devuelve la ruta del archivo que coincida con `dbf`. Cabe mencionar que como no especifica `exdir` crea por defecto el directorio (carpeta) donde se guardará el archivo extraído. Aquí podemos añadir parte del código de Pacheco creando un directorio temporal con `tempdir`.
+
+```{r}
+tempdir()
+```
+
+Por tanto,
+
+```{r}
+url <- "https://www.inegi.org.mx/contenidos/programas/enoe/15ymas/microdatos/enoe_2026_trim1_csv.zip"
+dir_temp <- tempdir()
+archivo_temp <- tempfile(tmpdir = dir_temp, fileext = ".zip")
+download.file(url, destfile = archivo_temp)
+enoe <- unzip(archivo_temp, list = TRUE)$Name
+unzip(archivo_temp, files = enoe[grep("SDEM", enoe)], exdir = dir_temp)
+```
+
+Solamente nos falta un paso intermedio antes de cargar los datos, especificar la ubicación. Actualmente los datos se encuentran en el directorio temporal, necesitamos especificar la ruta del archivo. Intentemos con `fs:dir_tree`
+
+```{r}
+pacman::p_load(fs)
+fs::dir_tree(dir_temp)
+```
+
+Se observa que ahí está tanto el archivo descargado del sitio web del INEGI como el archivo descomprimido. Puede intentarse con `str_c`
+
+```{r}
+str_c(dir_temp, "\\", "ENOE_SDEMT126.csv")
+```
+
+Validemos
+
+```{r}
+sdem <- str_c(dir_temp, "\\", "ENOE_SDEMT126.csv")
+sdem
+```
+
+Ahora carguemos los datos
+
+```{r}
+read_csv(sdem)
+```
+
+Sí se puede.
+
+Pero quiero automatizar esta última etapa. Al investigar en internet está la función `list.files`, validemos
+
+```{r}
+list.files(dir_temp)
+```
+
+```{r}
+list.files(dir_temp, all.files = TRUE)
+```
+
+`all.files` devuelve todos los archivos del directorio, incluido los ocultos
+
+```{r}
+list.files(dir_temp, full.names = TRUE)
+```
+
+`full.names` devuelve la ruta completa de cada archivo
+
+```{r}
+list.files(dir_temp, recursive = TRUE)
+```
+
+`recursive` devuelve solamente el nombre de cada archivo de forma `recursiva`. Según la IA una función **recursiva** es aquella que se llama así misma para resolver un problema **PENDIENTE**
+
+```{r}
+list.files(dir_temp, full.names = TRUE, pattern = "\\.csv$")
+```
+
+Mientras que `pattern` devuelve el archivo que coincida con el patrón específicado. La IA me mando el patrón de búsqueda para aquellos archivos que terminan con `csv`.
+
+¿Podría hacerse con `grepl`? 
+
+```{r}
+list.files(dir_temp[grepl("SDEM", dir_temp)], full.names = TRUE)
+```
+
+NO. Por tanto, la forma más fácil de especificar la ruta del archivo a cargar es con `list.files`
+
+```{r}
+list.files(dir_temp, pattern = "\\.csv$", full.names = TRUE)
+```
+
+**PENDIENTE** Investigar expresiones regulares, por ejemplo en SQL ya se la expresión general 
+(no regular) para buscar cualquier caracter en cualquier posición o al final.
+
+Por tanto,
+
+```{r}
+sdem <- list.files(dir_temp, pattern = "\\.csv$", full.names = TRUE)
+sdem <- read_csv(sdem, col_types = cols(.default = col_character()))
+```
+
+Listo! Ahora se podría borrar el directorio temporal con `unlik`
+
+Cabe mencionar que si intentamos con `read_csv` directamente
+
+```{{r}}
+read_csv(dir_temp)
+```
+
+Arroja error
+
+En resumen, el procedimiento para descargar los microdatos de la ENOE mediante el URL puede resumirse como sigue:
+
+```{r}
+# Datos de entrada ----
+# URL
+url <- "https://www.inegi.org.mx/contenidos/programas/enoe/15ymas/microdatos/enoe_2026_trim1_csv.zip"
+# Directorio temporal
+dir_temp <- tempdir()
+# archivo temporal que contendrá el archivo descargado
+archivo_temp <- tempfile(tmpdir = dir_temp, fileext = ".zip")
+
+# Proceso de descarga ----
+download.file(url, destfile = archivo_temp)
+# enlista los archivos comprimidos
+enoe <- unzip(archivo_temp, list = TRUE)$Name
+# Extrae solamente los microdatos de SDEM
+unzip(archivo_temp, files = enoe[grep("SDEM", enoe)], exdir = dir_temp)
+# Ubicación del archivo para cargar
+sdem <- list.files(dir_temp, pattern = "\\.csv$", full.names = TRUE)
+
+# Proceso de carga ----
+sdem <- read_csv(sdem, col_types = cols(.default = col_character()))
+# se elimina directorio temporal
+unlink(dir_temp)
+```
+
+```{r}
+list.files(dir_temp)
+```
+
+Se observa que todavía aparece los archivos de `dir_temp`, según la documentación de dicha función se requiere especificar forzosamente `recursive = TRUE`. Se valida
+
+```{{r}}
+unlink(dir_temp, recursive = TRUE)
+list.files(dir_temp)
+```
+
+En efecto! Se elimino el directorio temporal. Entonces quedaría así
+
+```{r}
+# Datos de entrada ----
+# URL
+url <- "https://www.inegi.org.mx/contenidos/programas/enoe/15ymas/microdatos/enoe_2026_trim1_csv.zip"
+# Directorio temporal
+dir_temp <- tempdir()
+# archivo temporal que contendrá el archivo descargado
+archivo_temp <- tempfile(tmpdir = dir_temp, fileext = ".zip")
+
+# Proceso de descarga ----
+download.file(url, destfile = archivo_temp)
+# enlista los archivos comprimidos
+enoe <- unzip(archivo_temp, list = TRUE)$Name
+# Extrae solamente los microdatos de SDEM
+unzip(archivo_temp, files = enoe[grep("SDEM", enoe)], exdir = dir_temp)
+# Ubicación del archivo para cargar
+sdem <- list.files(dir_temp, pattern = "\\.csv$", full.names = TRUE)
+
+# Proceso de carga ----
+sdem <- read_csv(sdem, col_types = cols(.default = col_character()))
+# se elimina directorio temporal
+# unlink(dir_temp, recursive = TRUE)
+# se valida eliminación
+list.files(dir_temp)
+```
+
+Ahora bien, si se desea descargar todos los módulos de la ENOE
+
+```{r}
+# URL
+url <- "https://www.inegi.org.mx/contenidos/programas/enoe/15ymas/microdatos/enoe_2026_trim1_csv.zip"
+# Directorio temporal
+dir_temp <- tempdir()
+# archivo temporal que contendrá el archivo descargado
+archivo_temp <- tempfile(tmpdir = dir_temp, fileext = ".zip")
+
+# Proceso de descarga ----
+download.file(url, destfile = archivo_temp)
+```
+
+Ya no arroja error cuando quito la función `unlink(..., recursive = TRUE)` ¿por qué? 
+
+Por otro lado, 
+
+```{r}
+list.files(dir_temp)
+```
+
+Entonces, `unlink(dir_temp)` elimina el directorio temporal de la sesión por eso ya no es posible crear uno nuevo a menos que se reinicie la sesión. Por tanto, lo recomendable es eliminar los archivos descargados y extraídos mediante `unlink` o `file.remove`. Cabe mencionar que existe el argumento `check` en `tempdir` que recrea el directorio temporal si ya no es válido, se valida
+
+```{r}
+unlink(dir_temp)
+list.files(dir_temp)
+```
+
+Ahora
+
+```{r}
+unlink(dir_temp, recursive = TRUE)
+list.files(dir_temp)
+tempdir(check = TRUE)
+```
+
+Se valida
+
+```{r}
+# URL
+url <- "https://www.inegi.org.mx/contenidos/programas/enoe/15ymas/microdatos/enoe_2026_trim1_csv.zip"
+# Directorio temporal
+dir_temp <- tempdir(check = TRUE)
+# archivo temporal que contendrá el archivo descargado
+archivo_temp <- tempfile(tmpdir = dir_temp, fileext = ".zip")
+
+# Proceso de descarga ----
+download.file(url, destfile = archivo_temp)
+```
+
+Sí se corrige, lo mejor es solo eliminar el archivo descargado y los extraídos ya que desconozco si existirá errores al eliminar el directorio temporal.
+
+Se investiga el tema del directorio temporal
+
+```{r}
+tempdir()
+tempdir()
+```
+
+Mi intuición es correcta. Solo muestra la ruta del directorio temporal de la sesión actual de R. 
+
+La siguiente página <https://www.jdtrat.com/blog/temporary-storage-in-r/> muestra una función de `base` que valida si existe un archivo: `file.exists`.
+
+La duda que se tiene es: ¿qué pasa si se elimina el directorio temporal de la sesión actual?
+
+La IA menciona que eliminar el directorio temporal genera distintos problemas, por lo cual sugiere no eliminar y mejor suprimir los archivos específicos mediante `unlink` (que apunte a un archivo y no a una carpeta) o `file.removes`. 
+
+Por tanto, se decide utilizar cualquier de las dos funciones para eliminar los ARCHIVOS y no la carpeta temporal.
+
+Fuente
+
+* <https://github.com/rexyai/RestRserve/issues/200> 
+* <https://www.jdtrat.com/blog/temporary-storage-in-r/> 
+
+Así pues, modificamos nuestro código para descargar los microdatos de la ENOE
+
+```{r}
+# URL
+url <- "https://www.inegi.org.mx/contenidos/programas/enoe/15ymas/microdatos/enoe_2026_trim1_csv.zip"
+# Almacena la ruta del directorio temporal
+dir_temp <- tempdir(check = TRUE)
+# Crea un archivo temporal que contendrá el archivo descargado
+archivo_temp <- tempfile(tmpdir = dir_temp, fileext = ".zip")
+
+# Proceso de descarga ----
+download.file(url, destfile = archivo_temp)
+```
+
+Visualizamos el archivo descargado
+
+```{r}
+list.files(dir_temp, pattern = "\\.zip$", full.names = TRUE)
+```
+
+Aquí modificamos el código de Martínez Sánchez (2017), en vez de usar `unzip + grepl`, utilizaremos `list.files`.
+
+```{r}
+archivo_temp <- list.files(dir_temp, pattern = "\\.zip$", full.names = TRUE)
+```
+
+Ahora se extraen todos los archivos
+
+```{r}
+unzip(archivo_temp, exdir = dir_temp)
+```
+
+Se visualizan los archivos descomprimidos
+
+```{r}
+list.files(dir_temp, pattern = "\\.csv")
+```
+
+```{r}
+enoe <- list.files(dir_temp, pattern = "\\.csv", full.names = TRUE)
+enoe
+```
+
+Listo! Ahora se cargan los datos. Por ejemplo, cargamos el módulo SDEM 
+
+```{r}
+read_csv(enoe[[4]], col_types = cols(.default = col_character()))
+```
+
+Listo!
+
+Por último, se eliminan los archivos descomprimidos y el archivo zip. Aquello se realiza con `list.files`, ayudándonos con patrones regulares que busquen archivos con extensión csv o zip ¿cómo?
+
+```{r}
+list.files(dir_temp, pattern = "\\.zip$|\\.csv$", full.names = TRUE)
+```
+
+Se encontró la respuesta en R for data science capítulo 15.2 <https://r4ds.hadley.nz/regexps.html>:
+
+"Puedes usar la alternancia , |, para elegir entre uno o más patrones alternativos. Por ejemplo, los siguientes patrones buscan frutas que contengan “manzana”, “melón” o “nuez”, o una vocal repetida."
+
+Ahora se asigna
+
+```{r}
+archivo_temp <- list.files(dir_temp, pattern = "\\.zip$|\\.csv$", full.names = TRUE)
+archivo_temp
+```
+
+Se eliminan, se intenta con `files.removes`
+
+```{r}
+file.remove(archivo_temp)
+```
+
+Se valida
+
+```{r}
+list.files(dir_temp)
+```
+
+En efecto ya no aparecen!!!
+
+Por tanto el código para descargar, extraer y cargar los microdatos de la ENOE es el siguiente:
+
+```{r}
+# Datos de entrada ----
+# URL
+url <- "https://www.inegi.org.mx/contenidos/programas/enoe/15ymas/microdatos/enoe_2026_trim1_csv.zip"
+# Almacena la ruta del directorio temporal
+dir_temp <- tempdir(check = TRUE)
+# Crea un archivo temporal que contendrá el archivo descargado
+archivo_temp <- tempfile(tmpdir = dir_temp, fileext = ".zip")
+
+# Proceso de descarga ----
+download.file(url, destfile = archivo_temp)
+# ruta del archivo comprimido
+archivo_temp <- list.files(dir_temp, pattern = "\\.zip$", full.names = TRUE)
+
+# proceso de extracción -----
+unzip(archivo_temp, exdir = dir_temp)
+
+# proceso de carga ----
+enoe <- list.files(dir_temp, pattern = "\\.csv", full.names = TRUE)
+sdem <- read_csv(enoe[[4]], col_types = cols(.default = col_character()))
+
+# proceso de eliminación ----
+archivo_temp <- list.files(dir_temp, pattern = "\\.zip$|\\.csv$", full.names = TRUE)
+```
+
+```{r}
+tempdir()
+archivo_temp
+dir_temp
+```
+
+Arroja el siguiente error:
+
+```{{r}}
+Error en .rs.downloadFile(url = url, destfile = archivo_temp): 
+  download from 'https://www.inegi.org.mx/contenidos/programas/enoe/15ymas/microdatos/enoe_2026_trim1_csv.zip' failed
+```
+
+Al validar la documentación de la función `download.file`, entre otros, menciona que:
+
+El tiempo de espera para muchas partes de la transferencia se puede configurar mediante la opción `timeout`, cuyo valor predeterminado es de 60 segundos. Este valor suele ser insuficiente para descargar archivos grandes (50 MB o más), por lo que conviene aumentarlo cuando se utilice `download.file` en los paquetes. Tenga en cuenta que, en versiones recientes de R, el usuario puede configurar el tiempo de espera predeterminado mediante la variable de entorno `R_DEFAULT_INTERNET_TIMEOUT`. Para evitar que este valor se reduzca, los paquetes deberían usar algo como:
+
+```{{r}}
+`options(timeout = max(300, getOption("timeout")))`
+```
+
+(No es realista exigir tiempos de descarga inferiores a 1 s/MB).
+
+Se valida. Según la IA, se especifica la variable de entorno a través de la función `Sys.getenv`, donde `x` es 
+
+"Un vector de la misma longitud que x, con (si names == TRUE) el nombre de la variable como atributo `names`. Cada elemento contiene el valor de la variable de entorno con el nombre del componente correspondiente de x (o el valor de `unset` si no se encontró ninguna variable de entorno con ese nombre)."
+
+Validamos
+
+```{r}
+Sys.getenv("R_DEFAULT_INTERNET_TIMEOUT")
+```
+
+Este blog <https://davetang.org/muse/2024/05/30/prevent-download-errors-in-r-by-increasing-the-timeout/> menciona configurar el tiempo máximo de descarga mediante `options(timeout = tiempo)`
+
+Se realiza la configuración que sugiere la misma documentación de `download.file`
+
+```{r}
+options(timeout = max(1000, getOption("timeout")))
+```
+
+Se vuelve a ejecutar el código para descargar
+
+```{r}
+# Datos de entrada ----
+# URL
+url <- "https://www.inegi.org.mx/contenidos/programas/enoe/15ymas/microdatos/enoe_2026_trim1_csv.zip"
+# Almacena la ruta del directorio temporal
+dir_temp <- tempdir(check = TRUE)
+# Crea un archivo temporal que contendrá el archivo descargado
+archivo_temp <- tempfile(tmpdir = dir_temp, fileext = ".zip")
+
+# Proceso de descarga ----
+# tiempo máximo de descarga 15 min
+options(timeout = max(900, getOption("timeout")))
+
+download.file(url, destfile = archivo_temp)
+# ruta del archivo comprimido
+archivo_temp <- list.files(dir_temp, pattern = "\\.zip$", full.names = TRUE)
+
+# proceso de extracción -----
+unzip(zipfile = archivo_temp, exdir = dir_temp)
+
+# proceso de carga ----
+enoe <- list.files(dir_temp, pattern = "\\.csv", full.names = TRUE)
+sdem <- read_csv(enoe[[4]], col_types = cols(.default = col_character()))
+
+# proceso de eliminación ----
+archivo_temp <- list.files(dir_temp, pattern = "\\.zip$|\\.csv$", full.names = TRUE)
+```
+
+¿Por qué arroja error?
+
+```{r}
+archivo_temp
+```
+
+Por que la variable tiene más de una ruta que contiene, a su vez, un archivo comprimido
+
+Se elimina
+
+```{r}
+list.files(dir_temp, pattern = "\\.zip$", full.names = TRUE)
+file.remove(list.files(dir_temp, pattern = "\\.zip$", full.names = TRUE))
+```
+
+Se valida
+
+```{r}
+list.files(dir_temp, pattern = "\\.zip$", full.names = TRUE)
+```
+
+Listo! Se vuelve a ejecutar el código
+
+```{r}
+# Datos de entrada ----
+# URL
+url <- "https://www.inegi.org.mx/contenidos/programas/enoe/15ymas/microdatos/enoe_2026_trim1_csv.zip"
+# Almacena la ruta del directorio temporal
+dir_temp <- tempdir(check = TRUE)
+# Crea un archivo temporal que contendrá el archivo descargado
+archivo_temp <- tempfile(tmpdir = dir_temp, fileext = ".zip")
+
+# Proceso de descarga ----
+# tiempo máximo de descarga 15 min
+options(timeout = max(900, getOption("timeout")))
+
+download.file(url, destfile = archivo_temp)
+# ruta del archivo comprimido
+archivo_temp <- list.files(dir_temp, pattern = "\\.zip$", full.names = TRUE)
+
+# proceso de extracción -----
+unzip(zipfile = archivo_temp, exdir = dir_temp)
+
+# proceso de carga ----
+enoe <- list.files(dir_temp, pattern = "\\.csv", full.names = TRUE)
+sdem <- read_csv(enoe[[4]], col_types = cols(.default = col_character()))
+
+# proceso de eliminación ----
+archivo_temp <- list.files(dir_temp, pattern = "\\.zip$|\\.csv$", full.names = TRUE)
+```
+
+Listo! Queda pendiente eliminar los archivos. Se observa que `file.removes` devuelve un valor lógico dependiendo si se pudo, o no, eliminar ¿qué sucede con `unlink`?
+
+Se valida
+
+```{r}
+# archivo_temp
+# unlink(archivo_temp)
+# archivo_temp
+# unlink(archivo_temp, force = TRUE)
+archivo_temp
+unlink(archivo_temp, recursive = TRUE)
+archivo_temp
+```
+
+No elimina los archivos, ni especificando el argumento `recursive` ¿por qué? quizá porque es un vector de más de una fila, se intenta
+
+```{r}
+unlink(archivo_temp[[1]], recursive = TRUE)
+archivo_temp
+```
+
+Tampoco lo elimina, la única manera que se tiene es con `file.remove`, pero devuelve un valor
+
+```{r}
+file.remove(archivo_temp[[1]])
+archivo_temp
+```
+
+Tampoco se pudo, se valida creando una copia
+
+```{r}
+list.files(dir_temp, full.names = TRUE)
+```
+
+Ya no están dichos archivos, entonces `unlink` si los elimina y de forma oculta
+
+Se vuelve a validar
+
+```{r}
+# Datos de entrada ----
+# URL
+url <- "https://www.inegi.org.mx/contenidos/programas/enoe/15ymas/microdatos/enoe_2026_trim1_csv.zip"
+# Almacena la ruta del directorio temporal
+dir_temp <- tempdir(check = TRUE)
+# Crea un archivo temporal que contendrá el archivo descargado
+archivo_temp <- tempfile(tmpdir = dir_temp, fileext = ".zip")
+
+# Proceso de descarga ----
+# tiempo máximo de descarga 15 min
+options(timeout = max(900, getOption("timeout")))
+
+download.file(url, destfile = archivo_temp)
+# ruta del archivo comprimido
+archivo_temp <- list.files(dir_temp, pattern = "\\.zip$", full.names = TRUE)
+
+# proceso de extracción -----
+unzip(zipfile = archivo_temp, exdir = dir_temp)
+
+# proceso de carga ----
+enoe <- list.files(dir_temp, pattern = "\\.csv", full.names = TRUE)
+sdem <- read_csv(enoe[[4]], col_types = cols(.default = col_character()))
+
+# proceso de eliminación ----
+archivo_temp <- list.files(dir_temp, pattern = "\\.zip$|\\.csv$", full.names = TRUE)
+unlink(archivo_temp)
+```
+
+Se valida
+
+```{r}
+list.files(dir_temp)
+```
+
+En efecto. Elimina de forma discreta/oculta.
+
+Lo último sería eliminar los datos creados
+
+```{r}
+remove(
+  list = c("archivo_temp", "dir_temp", "enoe", "url")
+)
+```
+
+Listo.
+
+Código final para descargar los microdatos de la ENOE
+
+```{r}
+# Datos de entrada ----
+# URL
+url <- "https://www.inegi.org.mx/contenidos/programas/enoe/15ymas/microdatos/enoe_2026_trim1_csv.zip"
+# Almacena la ruta del directorio temporal
+dir_temp <- tempdir(check = TRUE)
+# Crea un archivo temporal que contendrá el archivo descargado
+archivo_temp <- tempfile(tmpdir = dir_temp, fileext = ".zip")
+
+# Proceso de descarga ----
+# tiempo máximo de descarga 15 min
+options(timeout = max(900, getOption("timeout")))
+download.file(url, destfile = archivo_temp) # descarga
+# ruta del archivo comprimido
+archivo_temp <- list.files(dir_temp, pattern = "\\.zip$", full.names = TRUE)
+
+# proceso de extracción -----
+unzip(zipfile = archivo_temp, exdir = dir_temp)
+
+# proceso de carga ----
+enoe <- list.files(dir_temp, pattern = "\\.csv", full.names = TRUE)
+sdem <- read_csv(enoe[[4]], col_types = cols(.default = col_character()))
+
+# proceso de eliminación ----
+archivo_temp <- list.files(dir_temp, pattern = "\\.zip$|\\.csv$", full.names = TRUE)
+unlink(archivo_temp) # archivos descargados
+remove(list = c("archivo_temp", "dir_temp", "enoe", "url")) # objetos creados
+```
+
+Se observa que `enoe` tiene cinco archivos
+
+```{r}
+enoe
+```
+
+Asimismo, Martínez Sánchez especifica la ruta mediante `grepl`
+
+```{r}
+enoe[grepl("HOG", enoe)]
+```
+
+Así pues, 
+
+```{r}
+read_csv(enoe[grepl("HOG", enoe)])
+```
+
+Si funciona. Por tanto, se especifica el módulo en el código para ser explícitos
+
+```{r}
+# Datos de entrada ----
+# URL
+url <- "https://www.inegi.org.mx/contenidos/programas/enoe/15ymas/microdatos/enoe_2026_trim1_csv.zip"
+
+# Almacena la ruta del directorio temporal
+dir_temp <- tempdir(check = TRUE)
+
+# Crea un archivo temporal que contendrá el archivo descargado
+archivo_temp <- tempfile(tmpdir = dir_temp, fileext = ".zip")
+
+# Proceso de descarga ----
+# tiempo máximo de descarga 15 min
+options(timeout = max(900, getOption("timeout")))
+
+download.file(url, destfile = archivo_temp) # descarga
+
+# ruta del archivo comprimido
+archivo_temp <- list.files(dir_temp, pattern = "\\.zip$", full.names = TRUE)
+
+# proceso de extracción -----
+unzip(zipfile = archivo_temp, exdir = dir_temp)
+
+# proceso de carga ----
+# ruta de los archivos extraídos
+enoe <- list.files(dir_temp, pattern = "\\.csv", full.names = TRUE)
+
+# cuestionario de ocupación y empleo 1
+coe1 <- read_csv(
+  enoe[grepl("COE1", enoe)], 
+  col_types = cols(.default = col_character())
+)
+
+# cuestionario de ocupación y empleo 2
+coe2 <- read_csv(
+  enoe[grepl("COE2", enoe)], 
+  col_types = cols(.default = col_character())
+)
+
+# hogar
+hog <- read_csv(
+  enoe[grepl("HOG", enoe)], 
+  col_types = cols(.default = col_character())
+)
+
+# sociodemográfico
+sdem <- read_csv(
+  enoe[grepl("SDEM", enoe)], 
+  col_types = cols(.default = col_character())
+)
+
+# vivienda
+viv <- read_csv(
+  enoe[grepl("VIV", enoe)], 
+  col_types = cols(.default = col_character())
+)
+
+# proceso de eliminación ----
+# ruta de archivos descargados y extraídos
+archivo_temp <- list.files(
+  dir_temp, 
+  pattern = "\\.zip$|\\.csv$", 
+  full.names = TRUE
+)
+
+# eliminación de archivos descargados y extraídos
+unlink(archivo_temp) 
+
+# eliminación de objetos creados
+remove(list = c("archivo_temp", "dir_temp", "enoe", "url")) 
+```
+
+Listo! Ahora queda pendiente:
+
+* Hacerlo en forma de función
+* Hacer el caso específico de descargar un solo módulo (tabla)
+
+
+Para el caso específico, sería algo así
+
+```{r}
+# Datos de entrada ----
+# cuestionario
+modulo <- "SDEM"
+
+# URL
+url <- "https://www.inegi.org.mx/contenidos/programas/enoe/15ymas/microdatos/enoe_2026_trim1_csv.zip"
+
+# Almacena la ruta del directorio temporal
+dir_temp <- tempdir(check = TRUE)
+
+# Crea un archivo temporal que contendrá el archivo descargado
+archivo_temp <- tempfile(tmpdir = dir_temp, fileext = ".zip")
+
+# Proceso de descarga ----
+# tiempo máximo de descarga 15 min
+options(timeout = max(900, getOption("timeout")))
+
+download.file(url, destfile = archivo_temp) # descarga
+
+# ruta del archivo comprimido
+archivo_temp <- list.files(dir_temp, pattern = "\\.zip$", full.names = TRUE)
+
+# # proceso de extracción -----
+# unzip(zipfile = archivo_temp, exdir = dir_temp)
+# 
+# # proceso de carga ----
+# # ruta de los archivos extraídos
+# enoe <- list.files(dir_temp, pattern = "\\.csv", full.names = TRUE)
+```
+
+Existe la opción de Martínes Sánchez: `unzip(list = TRUE)`. Se me ocurre otra
+
+```{r}
+list.files(archivo_temp)
+```
+
+No es posible, por tanto esa es la única 
+
+```{r}
+unzip(archivo_temp, list = TRUE)$Name
+```
+
+Por tanto, queda así
+
+```{r}
+# # ruta del archivo comprimido
+# archivo_temp <- list.files(dir_temp, pattern = "\\.zip$", full.names = TRUE)
+
+# modulo especifico
+enoe <- unzip(archivo_temp, list = TRUE)$Name
+
+unzip(
+  archivo_temp, 
+  files = enoe[grepl(modulo, enoe)],
+  exdir = dir_temp
+)
+
+list.files(dir_temp)
+```
+
+Se realiza proceso de carga
+
+```{r}
+# proceso de carga ----
+# ruta de los archivos extraídos
+microdatos <- list.files(dir_temp, pattern = "\\.csv", full.names = TRUE)
+
+microdatos <- read_csv(microdatos, col_types = cols(.default = col_character()))
+```
+
+Por último, proceso de eliminación
+
+```{r}
+dir_temp
+archivo_temp
+enoe
+modulo
+url
+list.files(dir_temp)
+```
+
+```{r}
+list.files(dir_temp, pattern = "\\.zip$|\\.csv$", full.names = TRUE)
+archivo_temp <- list.files(dir_temp, pattern = "\\.zip$|\\.csv$", full.names = TRUE)
+unlink(archivo_temp)
+list.files(dir_temp)
+```
+
+Listo! El código final queda como sigue:
+
+```{r}
+# Datos de entrada ----
+# cuestionario a cargar
+cuestionario <- "SDEM"
+
+# URL
+url <- "https://www.inegi.org.mx/contenidos/programas/enoe/15ymas/microdatos/enoe_2026_trim1_csv.zip"
+
+# Almacena la ruta del directorio temporal
+dir_temp <- tempdir(check = TRUE)
+
+# Crea un archivo temporal que contendrá el archivo descargado
+archivo_temp <- tempfile(tmpdir = dir_temp, fileext = ".zip")
+
+# Proceso de descarga ----
+# tiempo máximo de descarga 15 min
+options(timeout = max(900, getOption("timeout")))
+
+download.file(url, destfile = archivo_temp) # descarga
+
+# ruta del archivo comprimido
+archivo_temp <- list.files(dir_temp, pattern = "\\.zip$", full.names = TRUE)
+
+# lista de los microdatos comprimidos
+microdatos <- unzip(archivo_temp, list = TRUE)$Name
+
+unzip(
+  archivo_temp, 
+  # cuestionario especifico
+  files = microdatos[grepl(cuestionario, microdatos)],
+  exdir = dir_temp
+)
+
+# Proceso de carga ----
+# ruta del archivo extraído
+microdatos <- list.files(dir_temp, pattern = "\\.csv", full.names = TRUE)
+
+microdatos <- read_csv(microdatos, col_types = cols(.default = col_character()))
+
+# Proceso de eliminación ----
+# archivos descargados
+archivo_temp <- list.files(dir_temp, pattern = "\\.zip$|\\.csv$", full.names = TRUE)
+unlink(archivo_temp)
+
+# objetos creados
+remove(list = c("archivo_temp", "cuestionario", "dir_temp", "url"))
+```
+
+Listo!
+
+Ahora se crean las funciones. En el caso general solo se requiere la URL.
+
+```{r}
+descargar_microdatos_enoe <- function(url){
+  
+  # Datos de entrada ----
+  
+  # Almacena la ruta del directorio temporal
+  dir_temp <- tempdir(check = TRUE)
+  
+  # Crea un archivo temporal que contendrá el archivo descargado
+  archivo_temp <- tempfile(tmpdir = dir_temp, fileext = ".zip")
+  
+  # Proceso de descarga ----
+  
+  # tiempo máximo de descarga 15 min
+  options(timeout = max(900, getOption("timeout")))
+  
+  download.file(url, destfile = archivo_temp) # descarga
+  
+  # ruta del archivo comprimido
+  archivo_temp <- list.files(dir_temp, pattern = "\\.zip$", full.names = TRUE)
+  
+  # proceso de extracción ----
+  
+  # lo almacena en el directorio temporal
+  unzip(zipfile = archivo_temp, exdir = dir_temp)
+  
+  # proceso de carga ----
+  
+  # ruta de los archivos extraídos
+  enoe <- list.files(dir_temp, pattern = "\\.csv", full.names = TRUE)
+  
+  # cuestionario de ocupación y empleo 1
+  coe1 <- read_csv(
+    enoe[grepl("COE1", enoe)], 
+    col_types = cols(.default = col_character())
+  )
+  
+  # cuestionario de ocupación y empleo 2
+  coe2 <- read_csv(
+    enoe[grepl("COE2", enoe)], 
+    col_types = cols(.default = col_character())
+  )
+  
+  # hogar
+  hog <- read_csv(
+    enoe[grepl("HOG", enoe)], 
+    col_types = cols(.default = col_character())
+  )
+  
+  # sociodemográfico
+  sdem <- read_csv(
+    enoe[grepl("SDEM", enoe)], 
+    col_types = cols(.default = col_character())
+  )
+  
+  # vivienda
+  viv <- read_csv(
+    enoe[grepl("VIV", enoe)], 
+    col_types = cols(.default = col_character())
+  )
+  
+  # proceso de eliminación ----
+  
+  # ruta de archivos descargados
+  archivo_temp <- list.files(
+    dir_temp, 
+    pattern = "\\.zip$|\\.csv$", 
+    full.names = TRUE
+  )
+  
+  # eliminación de archivos descargados
+  unlink(archivo_temp) 
+  
+  # eliminación de objetos creados
+  remove(list = c("archivo_temp", "dir_temp", "enoe", "url")) 
+
+}
+```
+
+Validemos
+
+```{r}
+url <- "https://www.inegi.org.mx/contenidos/programas/enoe/15ymas/microdatos/enoe_2026_trim1_csv.zip"
+
+descargar_microdatos_enoe(url)
+```
+
+Como se observa, no devolvió nada. Al investigar en internet, las funciones de R devuelven por defecto un objeto de forma explícita a través de `return` o implícita devolviendo el valor de la última línea de código. Para devolver más de un valor debe especificarse mediante `list(nuevo_nombre = actual_nombre)` y devolverá una lista, se puede manipular mediante el signo de peso `$`. O bien puede desempaquetarse mediante el paquete `zeallot`. 
+
+Véase <https://cran.r-project.org/web/packages/zeallot/index.html> para más información y preguntarle a IA: "como devolver más de una tabla creada dentro de la función?"
+
+Por el momento, se crea la función para un solo cuestionario
+
+```{r}
+descargar_microdatos_enoe <- function(url, cuestionario){
+  # Datos de entrada ----
+  
+  # Almacena la ruta del directorio temporal
+  dir_temp <- tempdir(check = TRUE)
+  
+  # Crea un archivo temporal que contendrá el archivo descargado
+  archivo_temp <- tempfile(tmpdir = dir_temp, fileext = ".zip")
+  
+  # Proceso de descarga ----
+  # tiempo máximo de descarga 15 min
+  options(timeout = max(900, getOption("timeout")))
+  
+  download.file(url, destfile = archivo_temp) # descarga
+  
+  # ruta del archivo comprimido
+  archivo_temp <- list.files(dir_temp, pattern = "\\.zip$", full.names = TRUE)
+  
+  # lista de los microdatos comprimidos
+  microdatos <- unzip(archivo_temp, list = TRUE)$Name
+  
+  unzip(
+    archivo_temp, 
+    # cuestionario especifico
+    files = microdatos[grepl(cuestionario, microdatos)],
+    exdir = dir_temp
+  )
+  
+  # Proceso de carga ----
+  # ruta del archivo extraído
+  microdatos <- list.files(dir_temp, pattern = "\\.csv", full.names = TRUE)
+  
+  microdatos <- read_csv(microdatos, col_types = cols(.default = col_character()))
+  
+  # Proceso de eliminación ----
+  # archivos descargados
+  archivo_temp <- list.files(dir_temp, pattern = "\\.zip$|\\.csv$", full.names = TRUE)
+  unlink(archivo_temp)
+  
+  # objetos creados
+  remove(list = c("archivo_temp", "cuestionario", "dir_temp", "url"))
+  
+  return(microdatos)
+}
+```
+
+Se valida
+
+```{r}
+cuestionario <- "SDEM"
+url <- "https://www.inegi.org.mx/contenidos/programas/enoe/15ymas/microdatos/enoe_2026_trim1_csv.zip"
+
+sdem <- descargar_microdatos_enoe(url, cuestionario)
+glimpse(sdem)
+```
+
+Listo!
+
+Queda pendiente
+
+* Crear función para todos los cuestionarios con paquete `zeallot`
+
+Se debe retornar mediante lista donde 'list(nuevo_nombre = nombre_actual)', validemos para dos cuestionarios
+
+```{r}
+descargar_microdatos_enoe <- function(url){
+  
+  # Datos de entrada ----
+  
+  # Almacena la ruta del directorio temporal
+  dir_temp <- tempdir(check = TRUE)
+  
+  # Crea un archivo temporal que contendrá el archivo descargado
+  archivo_temp <- tempfile(tmpdir = dir_temp, fileext = ".zip")
+  
+  # Proceso de descarga ----
+  
+  # tiempo máximo de descarga 15 min
+  options(timeout = max(900, getOption("timeout")))
+  
+  download.file(url, destfile = archivo_temp) # descarga
+  
+  # ruta del archivo comprimido
+  archivo_temp <- list.files(dir_temp, pattern = "\\.zip$", full.names = TRUE)
+  
+  # proceso de extracción ----
+  
+  # lo almacena en el directorio temporal
+  unzip(zipfile = archivo_temp, exdir = dir_temp)
+  
+  # proceso de carga ----
+  
+  # ruta de los archivos extraídos
+  enoe <- list.files(dir_temp, pattern = "\\.csv", full.names = TRUE)
+  
+  # # cuestionario de ocupación y empleo 1
+  # coe1 <- read_csv(
+  #   enoe[grepl("COE1", enoe)], 
+  #   col_types = cols(.default = col_character())
+  # )
+  # 
+  # # cuestionario de ocupación y empleo 2
+  # coe2 <- read_csv(
+  #   enoe[grepl("COE2", enoe)], 
+  #   col_types = cols(.default = col_character())
+  # )
+  
+  # hogar
+  hog <- read_csv(
+    enoe[grepl("HOG", enoe)], 
+    col_types = cols(.default = col_character())
+  )
+  
+  # # sociodemográfico
+  # sdem <- read_csv(
+  #   enoe[grepl("SDEM", enoe)], 
+  #   col_types = cols(.default = col_character())
+  # )
+  
+  # vivienda
+  viv <- read_csv(
+    enoe[grepl("VIV", enoe)], 
+    col_types = cols(.default = col_character())
+  )
+  
+  # proceso de eliminación ----
+  
+  # ruta de archivos descargados
+  archivo_temp <- list.files(
+    dir_temp, 
+    pattern = "\\.zip$|\\.csv$", 
+    full.names = TRUE
+  )
+  
+  # eliminación de archivos descargados
+  unlink(archivo_temp) 
+  
+  # eliminación de objetos creados
+  remove(list = c("archivo_temp", "dir_temp", "enoe", "url")) 
+  
+  return(list(hog = hog, viv = viv))
+
+}
+```
+
+
+Se valida
+
+```{r}
+url <- "https://www.inegi.org.mx/contenidos/programas/enoe/15ymas/microdatos/enoe_2026_trim1_csv.zip"
+
+descargar_microdatos_enoe(url)
+```
+
+Se observa que conserva el tipo de objeto, en este caso tibble. Entonces aquí entraría el desempaquetado de 'zeallot'
+
+Veamos primero la asignación por defecto
+
+```{r}
+enoe <- descargar_microdatos_enoe(url)
+```
+
+```{r}
+# enoe$hog
+hog <- enoe$hog
+hog
+```
+
+Se conserva el tipo de objeto
+
+En teoría 'zeallot' en una misma expresión desempaqueta y asigna, validemos
+
+Primero se instala
+
+```{r}
+pacman::p_load(zeallot)
+```
+
+Después se valida
+
+```{r}
+c(hog, viv) %<-% enoe
+
+```
+
+```{r}
+hog
+```
+
+Si está correcto. Aquí se requiere la posición de cada objeto de la lista. Así, se deja la asignación por defecto.
+
+Por tanto, el código queda como sigue
+
+```{r}
+descargar_microdatos_enoe <- function(url){
+  
+  # Datos de entrada ----
+  
+  # Almacena la ruta del directorio temporal
+  dir_temp <- tempdir(check = TRUE)
+  
+  # Crea un archivo temporal que contendrá el archivo descargado
+  archivo_temp <- tempfile(tmpdir = dir_temp, fileext = ".zip")
+  
+  # Proceso de descarga ----
+  
+  # tiempo máximo de descarga 15 min
+  options(timeout = max(900, getOption("timeout")))
+  
+  download.file(url, destfile = archivo_temp) # descarga
+  
+  # ruta del archivo comprimido
+  archivo_temp <- list.files(dir_temp, pattern = "\\.zip$", full.names = TRUE)
+  
+  # proceso de extracción ----
+  
+  # lo almacena en el directorio temporal
+  unzip(zipfile = archivo_temp, exdir = dir_temp)
+  
+  # proceso de carga ----
+  
+  # ruta de los archivos extraídos
+  enoe <- list.files(dir_temp, pattern = "\\.csv", full.names = TRUE)
+  
+  # cuestionario de ocupación y empleo 1
+  coe1 <- read_csv(
+    enoe[grepl("COE1", enoe)],
+    col_types = cols(.default = col_character())
+  )
+
+  # cuestionario de ocupación y empleo 2
+  coe2 <- read_csv(
+    enoe[grepl("COE2", enoe)],
+    col_types = cols(.default = col_character())
+  )
+  
+  # hogar
+  hog <- read_csv(
+    enoe[grepl("HOG", enoe)], 
+    col_types = cols(.default = col_character())
+  )
+  
+  # sociodemográfico
+  sdem <- read_csv(
+    enoe[grepl("SDEM", enoe)],
+    col_types = cols(.default = col_character())
+  )
+  
+  # vivienda
+  viv <- read_csv(
+    enoe[grepl("VIV", enoe)], 
+    col_types = cols(.default = col_character())
+  )
+  
+  # proceso de eliminación ----
+  
+  # ruta de archivos descargados
+  archivo_temp <- list.files(
+    dir_temp, 
+    pattern = "\\.zip$|\\.csv$", 
+    full.names = TRUE
+  )
+  
+  # eliminación de archivos descargados
+  unlink(archivo_temp) 
+  
+  # eliminación de objetos creados
+  remove(list = c("archivo_temp", "dir_temp", "enoe", "url")) 
+  
+  return(list(coe1 = coe1, coe2 = coe2, hog = hog, sdem = sdem, viv = viv))
+
+}
+```
+
+Se valida
+
+```{r}
+url <- "https://www.inegi.org.mx/contenidos/programas/enoe/15ymas/microdatos/enoe_2026_trim1_csv.zip"
+
+enoe <- descargar_microdatos_enoe(url)
+```
+
+Y para asignar 
+
+```{r}
+sdem <- enoe$sdem
+sdem
+```
+
+O podría utilizarse la evaluación ordenada
+
+```{r}
+# library(rlang)
+
+obtener_cuestionario <- function(encuesta, cuestionario){
+  encuesta_sym <- sym(encuesta)
+  cuestionario_sym <- sym(cuestionario)
+  
+  cuestionario <- encuesta_sym$cuestionario_sym
+  return(cuestionario)
+}
+```
+
+Se valida
+
+```{{r}}
+obtener_cuestionario("enoe", "coe1")
+```
+
+Arroja este error
+
+```{{r}}
+Error en encuesta_sym$cuestionario_sym: 
+  objeto de tipo 'symbol' no es subconjunto
+```
+
+Por tanto, así se queda. Se pasa código a un script
+
+En el siguiente documento se valida 'importinegi'

@@ -1,0 +1,531 @@
+---
+title: "Indicadores de la ENOE"
+date: today
+format: html
+---
+
+## Introducción
+
+Este documento tiene como objetivo crear los scripts que permitan la automatización de indicadores relacionados a la ENOE. En específico, se tratará de crear el código que permita calcular las tasas complementarias de ocupación y desocupación de la ENOE a nivel agregado como desagregado.
+
+### Librerías requeridas
+
+```{r}
+#| label: setup
+#| warning: false
+#| message: false
+
+if (require(pacman) == FALSE) { install.packages("pacman") }
+
+pacman::p_load(tidyverse, srvyr, kableExtra, here, rlang)
+
+source(here::here("0_funciones_v1-1.R"))
+```
+
+A partir de lo expuesto en:
+
+* `C:/Prog/proyectos/3_descargar_enoe_con_url_v1-1.qmd`
+* `C:/Prog/proyectos/4_descargar_enoe_con_importinegi_v1-1.qmd`
+
+Se decide descargar los microdatos directamente desde la URL del sitio web del INEGI. En específico, se descargarán los microdatos de la ENOE correspondientes al primer trimestre de 2025.
+
+```{r}
+# datos de entrada
+url <- "https://www.inegi.org.mx/contenidos/programas/enoe/15ymas/microdatos/enoe_2026_trim1_csv.zip"
+cuestionario <- "SDEM"
+
+# proceso de importación
+sdem <- descargar_microdatos_enoe(url, cuestionario)
+```
+
+El objetivo es, en primer lugar, replicar el cuadro presentado en el boletín correspondiente a dicho periodo: <https://www.inegi.org.mx/contenidos/saladeprensa/boletines/2026/enoe/enoe2026_05.pdf>, es decir, las tasas complementarias de ocupación y desocupación a nivel estatal, siendo:
+
+* Tasa de participación (TP)
+* Tasa de desocupación (TD)
+* Tasa de ocupación parcial y desocupación (TOPD1)
+* Tasa de presión general (TPRG)
+* Tasa de trabajo asalariado 
+* Tasa de subocupación 
+* Tasa de condiciones críticas de ocupación (TCCO)
+* Tasa de informalidad laboral 1 (TIL1)
+* Tasa de ocupación en el sector informal 1 (TOSI1)
+* Tasa de informalidad laboral 2 (TIL2)
+* Tasa de ocupación en el sector informal 2 (TOSI2)
+
+La fórmula para obtener dichas tasas se encuentran en (INEGI, 2023) capítulo 9.1 (pp. 28-31). En ese sentido, los campos precodificados que permiten dicho cálculo se encuentran solamente en los microdatos pertenecientes al cuestionario sociodemográfico (`SDEM`). Por su parte, los metadatos de la ENOE están en (INEGI, 2024). No obstante, cabe subrayar que:
+
+"A partir de la publicación de los microdatos del tercer trimestre de 2025 (26 de noviembre de 2025), cambió el nombre de los campos AGEB, ENT, LOC y MUN por CVE_AGEB, CVE_ENT, CVE_LOC y CVE_MUN, respectivamente. Así mismo, con la finalidad de facilitar la vinculación de la información estadística con el Marco Geoestadístico, se incorporó la clave geoestadística CVEGEO." (Información disponible en microdatos del sitio web de la ENOE).
+
+Para calcular dichas tasas debe considerarse la ponderación de la muestra contenida en el campo `fac_tri`. Se puede obtener a partir de sumar simplemente dicho valor, a través de, por ejemplo, la función `summarise`. O bien, pueden emplearse las funciones del paquete `srvyr` que además de arrojar el total también brinda estadísticos de variabilidad o también conocidos como indicadores de precisión estadística (PEND. CITA), tales como el error estándar, el coeficiente de variación y los intervalos de confianza. 
+
+En este espacio, se decide utilizar las funciones del paquete `srvyr` para estimar las tasas complementarias. Para lo cual, utilizaremos la función `definir_encuesta` donde se especifica la unidad primaria de muestreo (`upm`), el campo que contiene el estrato (`est`), la ponderación en este caso trimestral (`fac_tri`) y se especifica si también existe conglomeración en los datos. 
+
+```{{r}}
+# se define como encuesta compleja
+definir_encuesta <- function(datos){
+  datos_procesados <- datos |> 
+    as_survey_design(
+      ids = upm,
+      strata = est,
+      weights = fac_tri,
+      nest = TRUE
+    )
+  return(datos_procesados)
+}
+```
+
+Las funciones que permiten obtener las tasas complementarias son las siguientes:
+
+```{{r}}
+# calcular tasas complementarias de ocupación y desocupación
+calcular_tasas_ocup <- function(datos, nombre, campo, valor){
+  datos |>
+    mutate(ponderador = as.double(fac_tri)) |>
+    summarise(
+      nombre = nombre,
+      numerador = sum(ponderador[{{  campo  }} == valor]),
+      denominador = sum(ponderador),
+      tasa = numerador / denominador
+    )
+}
+
+# tasas complementarios por grupos
+calcular_tasas_ocu_sub <- function(datos, grupo, campo, valor){
+  datos |> 
+    mutate(ponderador = as.double(fac_tri)) |> 
+    group_by({{ grupo }}) |> 
+    summarise(
+      numerador = sum(ponderador[{{  campo  }} == valor]),
+      denominador = sum(ponderador),
+      tasa = numerador / denominador
+    )
+}
+
+# tasas complementarias con operador
+calcular_tasas_ocup_operador <- function(datos, nombre, campo, operador, valor){
+  # concatenar
+  filtro <- paste(campo, operador, valor)
+  
+  datos |>
+    mutate(ponderador = as.double(fac_tri)) |>
+    summarise(
+      nombre = nombre,
+      numerador = sum(ponderador[ !!parse_expr(filtro) ]),
+      denominador = sum(ponderador),
+      tasa = numerador / denominador
+    )
+}
+
+# tasas complementarias con operador por grupos
+calcular_tasas_ocup_operador_sub <- function(datos, grupo, campo, operador, valor){
+  # concatenar
+  filtro <- paste(campo, operador, valor)
+  
+  datos |>
+    mutate(ponderador = as.double(fac_tri)) |>
+    group_by({{  grupo  }}) |> 
+    summarise(
+      numerador = sum(ponderador[ !!parse_expr(filtro) ]),
+      denominador = sum(ponderador),
+      tasa = numerador / denominador
+    )
+}
+
+# funciones que iteran el cálculo de tasas de ocupación
+
+# tasas complementarias de ocupación y desocupación
+calcular_tasas_ocu_map <- function(datos, nombre, campo, operador, valor){
+  # busca el tibble especificado por el usuario
+  poblacion <- get(datos)
+  # concatena
+  filtro <- paste(campo, operador, valor)
+  
+  poblacion |> 
+    mutate(ponderador = as.double(fac_tri)) |> 
+    summarise(
+      datos = datos,
+      nombre = nombre,
+      numerador = sum(ponderador[  !!parse_expr(filtro)  ]),
+      denominador = sum(ponderador),
+      tasa = numerador / denominador
+    ) 
+}
+
+calcular_tasas_ocu_sub_map <- function(datos, grupo, nombre, campo, operador, valor){
+  # busca el tibble especificado por el usuario
+  poblacion <- get(datos)
+  # pasa de cadena de texto a símbolo
+  grupo_sym <- sym(grupo)
+  # concatena
+  filtro <- paste(campo, operador, valor)
+  
+  poblacion |> 
+    mutate(ponderador = as.double(fac_tri)) |> 
+    group_by(  !!grupo_sym  ) |> 
+    summarise(
+      datos = datos,
+      grupo = grupo,
+      nombre = nombre,
+      numerador = sum(ponderador[  !!parse_expr(filtro)  ]),
+      denominador = sum(ponderador),
+      tasa = numerador / denominador,
+      # elimina agrupación
+      .groups = "drop"
+    ) |> 
+    # renombra columna que contiene valores del grupo
+    rename("subgrupo" :=  !!grupo_sym  ) |> 
+    mutate(subgrupo = as.character(subgrupo)) |> 
+    relocate(subgrupo, .after = grupo)
+}
+```
+
+Sin embargo, ciertas funciones establecen más de un criterio para obtener el valor del numerador. Por ejemplo, la tasa de presión general se obtiene como sigue
+
+$$
+TPG = \frac{PD + POBOT}{PEA} * 100
+$$
+
+Fuente. (INEGI, 2023: 29)
+
+Donde 
+
+$PD$ es la población desocupada (`clase2 = 2`) y $POBOT$ es la población ocupada que ha buscado otro trabajo (`tpg_p8a = 1`). Por tanto, necesitamos modificar nuestra función original para establecer este segundo criterio como argumentos opcionales.
+
+En R Avanzado <https://adv-r.hadley.nz/index.html>, el autor establece que:
+
+* Una buena regla general es que una función anónima debería caber en una sola línea y no debería necesitar usar comas `{}`. Sección 6.2.5
+* Los argumentos opcionales se especifican con `NULL`. Sección 6.5.3
+
+Así pues, nuestra función cambia como sigue
+
+```{r}
+# tasas complementarias con operador
+calcular_tasas_comp <- function(
+    datos, nombre, ponderador,
+    campo1, condicion1, valor1,
+    campo2 = NULL, condicion2 = NULL, valor2 = NULL
+  ){
+  
+  if (is.null(campo2) & is.null(condicion2) & is.null(valor2)) {
+    # concatenar
+    filtro <- paste(campo1, condicion1, valor1)
+  } else {
+    filtro <- paste(campo1, condicion1, valor1, "&", campo2, condicion2, valor2)
+  }
+  
+  datos |>
+    mutate(ponderador = as.double(fac_tri)) |>
+    summarise(
+      nombre = nombre,
+      numerador = sum(ponderador[ !!parse_expr(filtro) ]),
+      denominador = sum(ponderador),
+      tasa = numerador / denominador
+    )
+}
+```
+
+Además, necesita especificarse el criterio para obtener los totales (denominador) de cada tasa. Por tanto, se modifica la función anterior
+
+```{r}
+# tasas complementarias con operador
+calcular_tasas_comp <- function(
+    datos, nombre,
+    campo_num1, condicion_num1, valor_num1,
+    campo_num2 = NULL, condicion_num2 = NULL, valor_num2 = NULL,
+    campo_den1, condicion_den1, valor_den1,
+    campo_den2 = NULL, condicion_den2 = NULL, valor_den2 = NULL
+  ){
+  
+  if (is.null(campo_num2) & is.null(condicion_num2) & is.null(valor_num2)) {
+    # concatenar
+    filtro_num <- paste(campo_num1, condicion_num1, valor_num1)
+  } else {
+    filtro_num <- paste(
+      campo_num1, condicion_num1, valor_num1, "&", 
+      campo_num2, condicion_num2, valor_num2
+    )
+  }
+
+  if (is.null(campo_den2) & is.null(condicion_den2) & is.null(valor_den2)) {
+    # concatenar
+    filtro_den <- paste(campo_den1, condicion_den1, valor_den1)
+  } else {
+    filtro_den <- paste(
+      campo_den1, condicion_den1, valor_den1, "&", 
+      campo_den2, condicion_den2, valor_den2
+    )
+  }
+  
+  # ponderador_sym <- sym(ponderador)
+  
+  datos <- get(datos)
+  
+  datos |>
+    mutate(ponderador = as.double(fac_tri)) |>
+    summarise(
+      nombre = nombre,
+      numerador = sum(ponderador[ !!parse_expr(filtro_num) ]),
+      denominador = sum(ponderador[  !!parse_expr(filtro_den)]),
+      tasa = numerador / denominador
+    )
+  
+  # return(list(numerador = filtro_num, denominador = filtro_den))
+}
+```
+
+Se valida calculando la tasa de participación
+
+```{r}
+sdem <- sdem |> 
+  mutate(eda = as.integer(eda))
+```
+
+```{r}
+calcular_tasas_comp(
+    datos = "sdem", nombre = "tp", 
+    campo_num1 = "clase1", condicion_num1 = "==", valor_num1 = "1",
+    campo_den1 = "eda", condicion_den1 = ">=", valor_den1 = "15",
+    campo_den2 = "eda", condicion_den2 = "<=", valor_den2 = "98"
+  )
+```
+
+Se valida
+
+```{r}
+sdem |> 
+  filter(eda >= 15 & eda <= 98)
+```
+
+El criterio está bien especificado
+
+```{r}
+paste("edad", ">=", "15", "&", "edad", "<=", "98")
+```
+
+Podría simplificar los elementos de entrada de la función
+
+```{r}
+# tasas complementarias con operador
+calcular_tasas_comp <- function(datos, nombre, filtro_num, filtro_den){
+  # ponderador_sym <- sym(ponderador)
+  # datos <- get(datos)
+  # 
+  # datos |>
+  #   mutate(ponderador = as.double(fac_tri)) |>
+  #   summarise(
+  #     nombre = nombre,
+  #     numerador = sum(ponderador[ !!parse_expr(filtro_num) ]),
+  #     denominador = sum(ponderador[  !!parse_expr(filtro_den)]),
+  #     tasa = numerador / denominador
+  #   )
+  
+  return(list(numerador = filtro_num, denominador = filtro_den))
+}
+```
+
+Se valida filtro
+
+```{r}
+calcular_tasas_comp("sdem", "tp", "clase1 == 1", "eda >= 15 & eda <= 98")
+```
+
+Lo retorna adecuadamente, se valida cálculo
+
+```{r}
+# tasas complementarias con operador
+calcular_tasas_comp <- function(datos, nombre, filtro_num, filtro_den){
+  # ponderador_sym <- sym(ponderador)
+  datos <- get(datos)
+
+  datos |>
+    mutate(ponderador = as.double(fac_tri)) |>
+    summarise(
+      nombre = nombre,
+      numerador = sum(ponderador[ !!parse_expr(filtro_num)  ]),
+      denominador = sum(ponderador[  !!parse_expr(filtro_den)  ]),
+      tasa = numerador / denominador
+    )
+  
+  # return(list(numerador = filtro_num, denominador = filtro_den))
+}
+```
+
+```{r}
+calcular_tasas_comp("sdem", "tp", "clase1 == 1", "between(eda, 15, 98)")
+```
+
+Sigue sin obtener el denominador ¿por qué? hagamos un filtro sencillo
+
+```{r}
+calcular_tasas_comp("sdem", "tp", "clase1 == 1", "eda == 15")
+```
+
+Tampoco arroja resultado, ¿será por qué hay `NA`?
+
+```{r}
+sdem |> 
+  filter(is.na(eda))
+```
+
+Sí los hay, por tanto hay que eliminarlos
+
+```{r}
+# tasas complementarias con operador
+calcular_tasas_comp <- function(datos, nombre, filtro_num, filtro_den){
+  # ponderador_sym <- sym(ponderador)
+  datos <- get(datos)
+
+  datos |>
+    mutate(ponderador = as.double(fac_tri)) |>
+    summarise(
+      nombre = nombre,
+      numerador = sum(ponderador[ !!parse_expr(filtro_num)  ]),
+      denominador = sum(ponderador[  !!parse_expr(filtro_den)  ], na.rm = TRUE),
+      tasa = numerador / denominador
+    )
+  
+  # return(list(numerador = filtro_num, denominador = filtro_den))
+}
+```
+
+Se valida
+
+```{r}
+calcular_tasas_comp("sdem", "tp", "clase1 == 1", "eda == 15")
+```
+
+Ahora sí se pudo! Pero el resultado no es el correcto, hay que aplicar el criterio general
+
+```{r}
+df <- sdem |> 
+  filter(r_def == 0, c_res == 1 | c_res == 3, between(eda, 15, 98))
+
+calcular_tasas_comp("df", "tp", "clase1 == 1", "eda >= 15 & eda <= 98")
+```
+
+Listo!!! El resultado coincide con el dato reportado en el boletín
+
+Ahora bien, ese criterio general aplica para cada tasa por tanto se incluye pero fuera de la función
+
+```{r}
+sdem <- sdem |> 
+  filter(r_def == 0, c_res == 1 | c_res == 3, between(eda, 15, 98))
+```
+
+Ahora se intenta con la tasa de desocupación
+
+```{r}
+calcular_tasas_comp("sdem", "td", "clase2 == 2", "clase1 == 1")
+```
+
+Correcto!!!
+
+Lo que falta es especificar el ponderador: mensual o trimestral
+
+```{r}
+# tasas complementarias con operador
+calcular_tasas_comp <- function(datos, nombre, ponderador, filtro_num, filtro_den){
+  datos <- get(datos)
+  ponderador_sym <- sym(ponderador)
+  
+  datos |>
+    mutate(ponderador = as.double(  !!ponderador_sym  )) |>
+    summarise(
+      nombre = nombre,
+      numerador = sum(ponderador[  !!parse_expr(filtro_num)  ], na.rm = TRUE),
+      denominador = sum(ponderador[  !!parse_expr(filtro_den)  ], na.rm = TRUE),
+      tasa = numerador / denominador
+    )
+}
+```
+
+Se valida
+
+```{r}
+calcular_tasas_comp("sdem", "td", "fac_tri", "clase2 == 2", "clase1 == 1")
+```
+
+Correcto!
+
+Para el caso desagregado solamente se agrupa
+
+```{r}
+# tasas complementarias con operador
+calcular_tasas_sub <- function(datos, nombre, ponderador, grupo, filtro_num, filtro_den){
+  datos <- get(datos)
+  ponderador_sym <- sym(ponderador)
+  grupo_sym <- sym(grupo)
+  
+  datos |>
+    mutate(ponderador = as.double(  !!ponderador_sym  )) |>
+    group_by(  !!grupo_sym  ) |> 
+    summarise(
+      nombre = nombre,
+      numerador = sum(ponderador[  !!parse_expr(filtro_num)  ], na.rm = TRUE),
+      denominador = sum(ponderador[  !!parse_expr(filtro_den)  ], na.rm = TRUE),
+      tasa = numerador / denominador
+    )
+}
+```
+
+Se valida por nivel educativo
+
+```{r}
+calcular_tasas_sub("sdem", "td", "fac_tri", "cs_p13_1", "clase2 == 2", "clase1 == 1")
+```
+
+Se valida por entidad
+
+```{r}
+calcular_tasas_sub("sdem", "td", "fac_tri", "cve_ent", "clase2 == 2", "clase1 == 1")
+```
+
+En términos generales, está correcto. Por tanto, nuestras funciones quedan como sigue
+
+```{r}
+# tasas complementarias a nivel general
+calcular_tasas_gen <- function(datos, nombre, ponderador, filtro_num, filtro_den){
+  datos <- get(datos)
+  ponderador_sym <- sym(ponderador)
+  
+  datos |>
+    mutate(ponderador = as.double(  !!ponderador_sym  )) |>
+    summarise(
+      nombre = nombre,
+      numerador = sum(ponderador[  !!parse_expr(filtro_num)  ], na.rm = TRUE),
+      denominador = sum(ponderador[  !!parse_expr(filtro_den)  ], na.rm = TRUE),
+      tasa = numerador / denominador
+    )
+}
+
+# tasas complementarias desagregadas
+calcular_tasas_sub <- function(datos, nombre, ponderador, grupo, filtro_num, filtro_den){
+  datos <- get(datos)
+  ponderador_sym <- sym(ponderador)
+  grupo_sym <- sym(grupo)
+  
+  datos |>
+    mutate(ponderador = as.double(  !!ponderador_sym  )) |>
+    group_by(  !!grupo_sym  ) |> 
+    summarise(
+      nombre = nombre,
+      numerador = sum(ponderador[  !!parse_expr(filtro_num)  ], na.rm = TRUE),
+      denominador = sum(ponderador[  !!parse_expr(filtro_den)  ], na.rm = TRUE),
+      tasa = numerador / denominador
+    )
+}
+```
+
+Para lo cual se requiere:
+
+1. Definir `eda` como entero
+2. Aplicar el criterio general
+
+```{{r}}
+sdem <- sdem |> 
+  filter(r_def == 0, c_res == 1 | c_res == 3, between(eda, 15, 98))
+```
+
+Se añaden dichas funciones al script correspondiente
+
+

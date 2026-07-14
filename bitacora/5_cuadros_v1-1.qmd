@@ -1,0 +1,25 @@
+---
+format: html
+---
+
+En este documento se continua con el siguiente paso de este proyecto: visualización.
+
+```{r}
+#| label: setup
+#| warning: false
+#| message: false
+
+if (require(pacman) == FALSE) {
+  install.packages("pacman")
+  library(pacman)
+}
+
+pacman::p_load(tidyverse, here, kableExtra)
+# pacman::p_loaded()
+
+tasas_tot <- read_rds(here::here("datos", "tasas_tot.rds"))
+```
+
+Para el tema de los cuadros, la opción predilecta que manejaba la IA era `kableExtra`. No obstante, (Zimmer et. al., 2024) utilizan `gt` y `gtsummary` para realizar los cuadros en datos de encuestas complejas, véase sección 8.3. El código se ve fácil de interpretar. ¿Cuál es la diferencia entre `kableExtra` y `gt`?
+
+

@@ -1,0 +1,710 @@
+---
+format: html
+---
+
+```{r}
+#| label: setup
+#| warning: false
+#| message: false
+
+if (require(pacman) == FALSE) { 
+  install.packages("pacman") 
+  } else {
+    pacman::p_load(tidyverse, srvyr, kableExtra, here, rlang)
+  }
+
+source(here::here("0_funciones_v1-2.R"))
+
+# datos de entrada
+url <- "https://www.inegi.org.mx/contenidos/programas/enoe/15ymas/microdatos/enoe_2026_trim1_csv.zip"
+cuestionario <- "SDEM"
+
+# proceso de importación
+sdem <- descargar_microdatos_enoe(url, cuestionario)
+
+sdem <- sdem |> 
+  mutate(
+    eda = as.integer(eda),
+    fac_tri = as.double(fac_tri)
+  ) |> 
+  filter(r_def == 0, c_res == 1 | c_res == 3, between(eda, 15, 98))
+```
+
+Se especifican los valores de entrada
+
+```{r}
+entrada <- tribble(
+  ~datos, ~nombre, ~ponderador, ~filtro_num, ~filtro_den, 
+  # -----|
+  "sdem", "tp", "fac_tri", "clase1 == 1", "eda >= 15 & eda <= 98", 
+  "sdem", "td", "fac_tri", "clase2 == 2", "clase1 == 1", 
+  "sdem", "topd", "fac_tri", "clase2 == 2 & dur9c == 2", "clase1 == 1", 
+  "sdem", "tpg", "fac_tri", "clase2 == 2 & tpg_p8a == 1", "clase1 == 1", 
+  "sdem", "tta", "fac_tri", "remune2c == 1", "clase2 == 1", 
+  "sdem", "tsub", "fac_tri", "sub_o == 1", "clase2 == 1", 
+  "sdem", "tcco", "fac_tri", "tcco == 1 | tcco == 2 | tcco == 3", "clase2 == 1", 
+  "sdem", "tosi1", "fac_tri", "tue2 == 5", "clase2 == 1", 
+  "sdem", "til1", "fac_tri", "emp_ppal == 1", "clase2 == 1", 
+  "sdem", "tosi2", "fac_tri", "tue2 == 5", "clase2 == 1 & ambito1 != 1", 
+  "sdem", "til2", "fac_tri", "emp_ppal == 1 & ambito1 != 1", "clase2 == 1 & ambito1 != 1"
+)
+```
+
+Ahora se itera dicha función
+
+```{r}
+tasas_gen <- pmap(entrada, calcular_tasas_gen) |> 
+  list_rbind()
+
+tasas_gen
+```
+
+
+```{r}
+sdem |> 
+  select(contains("dur"))
+
+sdem |> 
+  distinct(dur9c)
+
+sdem |> 
+  filter(clase2 == 2 & dur9c == 2)
+
+sdem |> 
+  filter(clase2 == 2 | dur9c == 2)
+```
+
+```{r}
+calcular_tasas_gen("sdem", "topd", "fac_tri", "clase2 == 2 | dur9c == 2", "clase1 == 1")
+```
+
+Es OR
+
+```{r}
+entrada <- tribble(
+  ~datos, ~nombre, ~ponderador, ~filtro_num, ~filtro_den, 
+  # -----|
+  "sdem", "tp", "fac_tri", "clase1 == 1", "eda >= 15 & eda <= 98", 
+  "sdem", "td", "fac_tri", "clase2 == 2", "clase1 == 1", 
+  "sdem", "topd", "fac_tri", "clase2 == 2 | dur9c == 2", "clase1 == 1", 
+  "sdem", "tpg", "fac_tri", "clase2 == 2 | tpg_p8a == 1", "clase1 == 1", 
+  "sdem", "tta", "fac_tri", "remune2c == 1", "clase2 == 1", 
+  "sdem", "tsub", "fac_tri", "sub_o == 1", "clase2 == 1", 
+  "sdem", "tcco", "fac_tri", "tcco == 1 | tcco == 2 | tcco == 3", "clase2 == 1", 
+  "sdem", "tosi1", "fac_tri", "tue2 == 5", "clase2 == 1", 
+  "sdem", "til1", "fac_tri", "emp_ppal == 1", "clase2 == 1", 
+  "sdem", "tosi2", "fac_tri", "tue2 == 5", "clase2 == 1 & ambito1 != 1", 
+  "sdem", "til2", "fac_tri", "emp_ppal == 1 & ambito1 != 1", "clase2 == 1 & ambito1 != 1"
+)
+
+tasas_gen <- pmap(entrada, calcular_tasas_gen) |> 
+  list_rbind()
+
+tasas_gen
+```
+
+Ahora se validan nuestros resultados. Son iguales a los obtenidos en el boletín cuadro 4 p. 9
+
+De forma desagregada reportan los resultados por género, entidades federativas y áreas metropolitanas. Se hace la prueba. 
+
+
+```{r}
+calcular_tasas_sub("sdem", 	"tp", 	"fac_tri", 	"sex", 	"clase1 == 1", 	"eda >= 15 & eda <= 98")
+```
+
+Está correcto! Se itera dicha función
+
+Para el caso de áreas, intuyo que lo hacen a través del campo `cd_a`. 
+
+```{r}
+sdem |> distinct(cd_a)
+```
+
+El mismo INEGI menciona que:
+
+"A nivel de desagregación por área metropolitana, donde el mercado de trabajo está más organizado y se puede conocer con mayor precisión la complejidad del fenómeno ocupacional, la ENOE presenta los indicadores para 39 ciudades o áreas metropolitanas con más de
+100 mil habitantes" p. 14.
+
+Por tanto, se tiene que calcular el total de la población
+
+```{r}
+sdem <- sdem |> 
+  mutate(fac_tri = as.double(fac_tri))
+```
+
+```{r}
+sdem |> 
+  mutate(cd_a = as.integer(cd_a)) |> 
+  filter(cd_a < 81) |> 
+  group_by(cd_a) |> 
+  summarise(
+    tot = sum(fac_tri)
+  ) |> 
+  filter(tot > 100000) |> 
+  mutate(
+    cd_a_mayor_mil = 1,
+    cd_a = as.character(cd_a)
+  )
+  # select(-tot)
+```
+
+Se añade a la tabla `SDEM`
+
+```{r}
+cd_mayor_mil <- sdem |> 
+  mutate(cd_a = as.integer(cd_a)) |> 
+  filter(cd_a < 81) |> 
+  group_by(cd_a) |> 
+  summarise(
+    tot = sum(fac_tri)
+  ) |> 
+  filter(tot > 100000) |> 
+  mutate(
+    cd_a_mayor_mil = 1,
+    cd_a = as.character(cd_a)
+  ) |> 
+  select(-tot)
+
+sdem <- sdem |> 
+  left_join(cd_mayor_mil, by = "cd_a")
+```
+
+Se hace el cálculo y después se filtran las áreas metropolitanas con más de 100 mil habitantes.
+
+```{r}
+entrada <- tribble(
+  ~datos, ~nombre, ~ponderador, ~grupo, ~filtro_num, ~filtro_den, 
+  # ---
+  "sdem", "tp", "fac_tri", "sex", "clase1 == 1", "eda >= 15 & eda <= 98", 
+  "sdem", "td", "fac_tri", "sex", "clase2 == 2", "clase1 == 1", 
+  "sdem", "topd", "fac_tri", "sex", "clase2 == 2 | dur9c == 2", "clase1 == 1", 
+  "sdem", "tpg", "fac_tri", "sex", "clase2 == 2 | tpg_p8a == 1", "clase1 == 1", 
+  "sdem", "tta", "fac_tri", "sex", "remune2c == 1", "clase2 == 1", 
+  "sdem", "tsub", "fac_tri", "sex", "sub_o == 1", "clase2 == 1", 
+  "sdem", "tcco", "fac_tri", "sex", "tcco == 1 | tcco == 2 | tcco == 3", "clase2 == 1", 
+  "sdem", "tosi1", "fac_tri", "sex", "tue2 == 5", "clase2 == 1", 
+  "sdem", "til1", "fac_tri", "sex", "emp_ppal == 1", "clase2 == 1", 
+  "sdem", "tosi2", "fac_tri", "sex", "tue2 == 5", "clase2 == 1 & ambito1 != 1", 
+  "sdem", "til2", "fac_tri", "sex", "emp_ppal == 1 & ambito1 != 1", "clase2 == 1 & ambito1 != 1", 
+  "sdem", "tp", "fac_tri", "cve_ent", "clase1 == 1", "eda >= 15 & eda <= 98", 
+  "sdem", "td", "fac_tri", "cve_ent", "clase2 == 2", "clase1 == 1", 
+  "sdem", "topd", "fac_tri", "cve_ent", "clase2 == 2 | dur9c == 2", "clase1 == 1", 
+  "sdem", "tpg", "fac_tri", "cve_ent", "clase2 == 2 | tpg_p8a == 1", "clase1 == 1", 
+  "sdem", "tta", "fac_tri", "cve_ent", "remune2c == 1", "clase2 == 1", 
+  "sdem", "tsub", "fac_tri", "cve_ent", "sub_o == 1", "clase2 == 1", 
+  "sdem", "tcco", "fac_tri", "cve_ent", "tcco == 1 | tcco == 2 | tcco == 3", "clase2 == 1", 
+  "sdem", "tosi1", "fac_tri", "cve_ent", "tue2 == 5", "clase2 == 1", 
+  "sdem", "til1", "fac_tri", "cve_ent", "emp_ppal == 1", "clase2 == 1", 
+  "sdem", "tosi2", "fac_tri", "cve_ent", "tue2 == 5", "clase2 == 1 & ambito1 != 1", 
+  "sdem", "til2", "fac_tri", "cve_ent", "emp_ppal == 1 & ambito1 != 1", "clase2 == 1 & ambito1 != 1", 
+  "sdem", "tp", "fac_tri", "cd_a", "clase1 == 1", "eda >= 15 & eda <= 98", 
+  "sdem", "td", "fac_tri", "cd_a", "clase2 == 2", "clase1 == 1", 
+  "sdem", "topd", "fac_tri", "cd_a", "clase2 == 2 | dur9c == 2", "clase1 == 1", 
+  "sdem", "tpg", "fac_tri", "cd_a", "clase2 == 2 | tpg_p8a == 1", "clase1 == 1", 
+  "sdem", "tta", "fac_tri", "cd_a", "remune2c == 1", "clase2 == 1", 
+  "sdem", "tsub", "fac_tri", "cd_a", "sub_o == 1", "clase2 == 1", 
+  "sdem", "tcco", "fac_tri", "cd_a", "tcco == 1 | tcco == 2 | tcco == 3", "clase2 == 1", 
+  "sdem", "tosi1", "fac_tri", "cd_a", "tue2 == 5", "clase2 == 1", 
+  "sdem", "til1", "fac_tri", "cd_a", "emp_ppal == 1", "clase2 == 1", 
+  "sdem", "tosi2", "fac_tri", "cd_a", "tue2 == 5", "clase2 == 1 & ambito1 != 1", 
+  "sdem", "til2", "fac_tri", "cd_a", "emp_ppal == 1 & ambito1 != 1", "clase2 == 1 & ambito1 != 1"
+)
+
+tasas_sub <- pmap(entrada, calcular_tasas_sub) |> 
+  list_rbind()
+
+tasas_sub
+```
+
+El nombre de la columna se tiene que unificar para poder iterar
+
+```{r}
+# tasas complementarias desagregadas
+calcular_tasas_sub <- function(datos, nombre, ponderador, grupo, filtro_num, filtro_den){
+  datos <- get(datos)
+  ponderador_sym <- sym(ponderador)
+  grupo_sym <- sym(grupo)
+  
+  datos |>
+    mutate(ponderador = as.double(  !!ponderador_sym  )) |>
+    group_by(  !!grupo_sym  ) |> 
+    summarise(
+      nombre = nombre,
+      numerador = sum(ponderador[  !!parse_expr(filtro_num)  ], na.rm = TRUE),
+      denominador = sum(ponderador[  !!parse_expr(filtro_den)  ], na.rm = TRUE),
+      tasa = numerador / denominador
+    ) |> 
+    rename("campo" :=  !!grupo_sym)
+}
+```
+
+Se valida
+
+```{r}
+calcular_tasas_sub("sdem", 	"tp", 	"fac_tri", 	"sex", 	"clase1 == 1", 	"eda >= 15 & eda <= 98")
+```
+
+Me falta añadir el campo 
+
+```{r}
+# tasas complementarias desagregadas
+calcular_tasas_sub <- function(datos, nombre, ponderador, grupo, filtro_num, filtro_den){
+  datos <- get(datos)
+  ponderador_sym <- sym(ponderador)
+  grupo_sym <- sym(grupo)
+  
+  datos |>
+    mutate(ponderador = as.double(  !!ponderador_sym  )) |>
+    group_by(  !!grupo_sym  ) |> 
+    summarise(
+      nombre = nombre,
+      numerador = sum(ponderador[  !!parse_expr(filtro_num)  ], na.rm = TRUE),
+      denominador = sum(ponderador[  !!parse_expr(filtro_den)  ], na.rm = TRUE),
+      tasa = numerador / denominador
+    ) |> 
+    rename("valor" :=  !!grupo_sym) |> 
+    mutate(grupo = grupo) |> 
+    relocate(grupo, .before = valor)
+}
+```
+
+Se valida
+
+```{r}
+calcular_tasas_sub("sdem", 	"tp", 	"fac_tri", 	"sex", 	"clase1 == 1", 	"eda >= 15 & eda <= 98")
+```
+
+Está correcto! Se modifica dicha función
+
+Se vuelve a iterar función
+
+```{r}
+entrada <- tribble(
+  ~datos, ~nombre, ~ponderador, ~grupo, ~filtro_num, ~filtro_den, 
+  # ---
+  "sdem", "tp", "fac_tri", "sex", "clase1 == 1", "eda >= 15 & eda <= 98", 
+  "sdem", "td", "fac_tri", "sex", "clase2 == 2", "clase1 == 1", 
+  "sdem", "topd", "fac_tri", "sex", "clase2 == 2 | dur9c == 2", "clase1 == 1", 
+  "sdem", "tpg", "fac_tri", "sex", "clase2 == 2 | tpg_p8a == 1", "clase1 == 1", 
+  "sdem", "tta", "fac_tri", "sex", "remune2c == 1", "clase2 == 1", 
+  "sdem", "tsub", "fac_tri", "sex", "sub_o == 1", "clase2 == 1", 
+  "sdem", "tcco", "fac_tri", "sex", "tcco == 1 | tcco == 2 | tcco == 3", "clase2 == 1", 
+  "sdem", "tosi1", "fac_tri", "sex", "tue2 == 5", "clase2 == 1", 
+  "sdem", "til1", "fac_tri", "sex", "emp_ppal == 1", "clase2 == 1", 
+  "sdem", "tosi2", "fac_tri", "sex", "tue2 == 5", "clase2 == 1 & ambito1 != 1", 
+  "sdem", "til2", "fac_tri", "sex", "emp_ppal == 1 & ambito1 != 1", "clase2 == 1 & ambito1 != 1", 
+  "sdem", "tp", "fac_tri", "cve_ent", "clase1 == 1", "eda >= 15 & eda <= 98", 
+  "sdem", "td", "fac_tri", "cve_ent", "clase2 == 2", "clase1 == 1", 
+  "sdem", "topd", "fac_tri", "cve_ent", "clase2 == 2 | dur9c == 2", "clase1 == 1", 
+  "sdem", "tpg", "fac_tri", "cve_ent", "clase2 == 2 | tpg_p8a == 1", "clase1 == 1", 
+  "sdem", "tta", "fac_tri", "cve_ent", "remune2c == 1", "clase2 == 1", 
+  "sdem", "tsub", "fac_tri", "cve_ent", "sub_o == 1", "clase2 == 1", 
+  "sdem", "tcco", "fac_tri", "cve_ent", "tcco == 1 | tcco == 2 | tcco == 3", "clase2 == 1", 
+  "sdem", "tosi1", "fac_tri", "cve_ent", "tue2 == 5", "clase2 == 1", 
+  "sdem", "til1", "fac_tri", "cve_ent", "emp_ppal == 1", "clase2 == 1", 
+  "sdem", "tosi2", "fac_tri", "cve_ent", "tue2 == 5", "clase2 == 1 & ambito1 != 1", 
+  "sdem", "til2", "fac_tri", "cve_ent", "emp_ppal == 1 & ambito1 != 1", "clase2 == 1 & ambito1 != 1", 
+  "sdem", "tp", "fac_tri", "cd_a", "clase1 == 1", "eda >= 15 & eda <= 98", 
+  "sdem", "td", "fac_tri", "cd_a", "clase2 == 2", "clase1 == 1", 
+  "sdem", "topd", "fac_tri", "cd_a", "clase2 == 2 | dur9c == 2", "clase1 == 1", 
+  "sdem", "tpg", "fac_tri", "cd_a", "clase2 == 2 | tpg_p8a == 1", "clase1 == 1", 
+  "sdem", "tta", "fac_tri", "cd_a", "remune2c == 1", "clase2 == 1", 
+  "sdem", "tsub", "fac_tri", "cd_a", "sub_o == 1", "clase2 == 1", 
+  "sdem", "tcco", "fac_tri", "cd_a", "tcco == 1 | tcco == 2 | tcco == 3", "clase2 == 1", 
+  "sdem", "tosi1", "fac_tri", "cd_a", "tue2 == 5", "clase2 == 1", 
+  "sdem", "til1", "fac_tri", "cd_a", "emp_ppal == 1", "clase2 == 1", 
+  "sdem", "tosi2", "fac_tri", "cd_a", "tue2 == 5", "clase2 == 1 & ambito1 != 1", 
+  "sdem", "til2", "fac_tri", "cd_a", "emp_ppal == 1 & ambito1 != 1", "clase2 == 1 & ambito1 != 1"
+)
+
+tasas_sub <- pmap(entrada, calcular_tasas_sub) |> 
+  list_rbind()
+
+tasas_sub
+```
+
+Se validan nuestros resultados
+
+Están correctos!!!
+
+Lo único que falta es calcular el total de personas ocupadas y desocupadas. En el boletín se reporta a nivel desagregado. Se intenta crear la función
+
+```{r}
+# ocupada
+sdem |> 
+  group_by(cve_ent) |> 
+  summarise(
+    n = n(),
+    tot = sum(fac_tri[clase2 == 1])
+  )
+
+# desocupada
+sdem |> 
+  group_by(cve_ent) |> 
+  summarise(
+    n = n(),
+    tot = sum(fac_tri[clase2 == 2])
+  )
+```
+
+Como encuesta de diseño complejo
+
+```{r}
+sdem_svy <- sdem |> 
+  as_survey_design(
+    ids = upm,
+    strata = est,
+    weights = fac_tri,
+    nest = TRUE
+  )
+```
+
+Se valida
+
+```{r}
+# ocupada
+sdem_svy |> 
+  filter(clase2 == 1) |> 
+  group_by(cve_ent) |> 
+  summarise(
+    n = n(),
+    tot = survey_total(vartype = c("se", "cv", "ci"))
+  )
+
+# desocupada
+sdem_svy |> 
+  filter(clase2 == 2) |> 
+  group_by(cve_ent) |> 
+  summarise(
+    n = n(),
+    tot = survey_total(vartype = c("se", "cv", "ci"))
+  )
+```
+
+Hay estimaciones que tienen un CV mayor al 15% que indican un nivel de precisión moderada. Así pues, sería pertinente añadir dichos estadísticos y mostrar los niveles de precisión según el semáforo del INEGI.
+
+La IA menciona que puede especificarse una condición dentro de `survey_total`, la documentación de dicha función menciona que `x` puede ser una variable o expresión, donde éste último puede ser una expresión condicional. Se valida
+
+```{r}
+# ocupada
+sdem_svy |> 
+  # filter(clase2 == 1) |> 
+  # group_by(cve_ent) |> 
+  summarise(
+    n = n(),
+    tot = survey_total(clase2 == 1, vartype = c("se", "cv", "ci"))
+  )
+```
+
+Sí es correcto! Se observa que se puede aplicar directamente similar a la función `sum`. La misma IA menciona que filtrar como si no fuera de diseño muestral complejo genera errores estándar sesgados. Se valida con el caso anterior para el caso de la población desocupada.
+
+```{r}
+# desocupada
+sdem_svy |> 
+  filter(clase2 == 2) |> 
+  group_by(cve_ent) |> 
+  summarise(
+    n = n(),
+    tot = survey_total(vartype = c("se", "cv", "ci"))
+  ) |> 
+  filter(tot_cv > 0.15)
+
+# desocupada
+sdem_svy |> 
+  group_by(cve_ent) |>
+  summarise(
+    n = n(),
+    tot = survey_total(clase2 == 2, vartype = c("se", "cv", "ci"))
+  ) |> 
+  filter(tot_cv > 0.15)
+```
+
+No se observan diferencias. Así pues, puede aplicarse el filtrado antes o durante la estimación del total, se decide utilizar la segunda opción. 
+
+Además, la misma IA menciona que no puede hacerse algo como sigue
+
+```{{r}}
+datos |> 
+  if ( condición ) {
+  ...
+} else {
+  ...
+} 
+  group_by() |> 
+  ...
+```
+
+Dado que es incompatible el uso del operador condicional IF con el operador pipe. Bueno, existen formas pero desde mi punto de vista hacen que el código más complejo de entender, quizá innecesariamente. Las soluciones al respecto son:
+
+```{{r}}
+if ( condición ) {
+  datos |> 
+    ...
+} else {
+  datos |> 
+    ...
+} 
+```
+
+O bien, utilizar una función anónima nativa. **PENDIENTE**
+
+Por otra parte, para validar qué código es más eficiente se valora:
+
+* Tiempo de ejecución
+* Uso de memoria
+
+En R, los siguientes paquetes pueden validar el tema de la eficiencia:
+
+* `microbenchmark`
+* `bench`
+* `system.time`
+
+**PENDIENTE** en investigar más al respecto
+
+Cabe mencionar que la IA menciona que filtrar antes de calcular o calcular aplicando un filtro genera prácticamente el mismo tiempo de ejecución. Por tanto, se decide dejar la función tal como está, pero se deja como pendiente validar dicha cuestión. 
+
+Ahora bien, la función sería algo así:
+
+```{r}
+calcular_tot_sub <- function(datos, grupo, filtro){
+  datos <- get(datos)
+  grupo_sym <- sym(grupo)
+  
+  datos |> 
+  group_by(  !!grupo_sym  ) |>
+  summarise(
+    n = n(),
+    tot = survey_total(  !!parse_expr(filtro)  , vartype = c("se", "cv", "ci"))
+  ) |> 
+    rename("valor" :=  !!grupo_sym) |> 
+    mutate(grupo = grupo) |> 
+    relocate(grupo, .before = valor)
+}
+```
+
+Se valida
+
+```{r}
+calcular_tot_sub("sdem_svy", "cve_ent", "clase2 == 1")
+```
+
+Está correcto!
+
+Por su parte, ¿podría modificar la función que calcula las tasas complementarias considerando los datos como encuesta compleja?
+
+```{r}
+# tasas complementarias a nivel general
+calcular_tasas_svy <- function(datos, nombre, filtro_num, filtro_den){
+  datos <- get(datos)
+  # ponderador_sym <- sym(ponderador)
+  
+  datos |>
+    # mutate(ponderador = as.double(  !!ponderador_sym  )) |>
+    summarise(
+      nombre = nombre,
+      numerador = survey_total(  !!parse_expr(filtro_num)  , vartype = NULL, na.rm = TRUE),
+      denominador = survey_total(  !!parse_expr(filtro_den)  , vartype = NULL, na.rm = TRUE),
+      tasa = numerador / denominador
+    )
+}
+```
+
+Se valida
+
+```{r}
+calcular_tasas_svy("sdem_svy", "tp", "clase1 == 1", "eda >= 15 & eda <= 98")
+```
+
+Sí es posible!!! Ahora validemos para el caso desagregado
+
+```{r}
+# tasas complementarias desagregadas
+calcular_tasas_svy_sub <- function(datos, nombre, grupo, filtro_num, filtro_den){
+  datos <- get(datos)
+  # ponderador_sym <- sym(ponderador)
+  grupo_sym <- sym(grupo)
+  
+  datos |>
+    # mutate(ponderador = as.double(  !!ponderador_sym  )) |>
+    group_by(  !!grupo_sym  ) |> 
+    summarise(
+      nombre = nombre,
+      numerador = survey_total(  !!parse_expr(filtro_num)  , vartype = NULL, na.rm = TRUE),
+      denominador = survey_total(  !!parse_expr(filtro_den)  , vartype = NULL, na.rm = TRUE),
+      tasa = numerador / denominador
+    ) |> 
+    rename("valor" :=  !!grupo_sym) |> 
+    mutate(grupo = grupo) |> 
+    relocate(grupo, .before = valor)
+}
+```
+
+Se valida
+
+```{r}
+calcular_tasas_svy_sub("sdem_svy", "tp", "sex", "clase1 == 1", "eda >= 15 & eda <= 98")
+```
+
+Está correcto!!!
+
+Por último, podría crear una función que devuelva el criterio o filtro para obtener cada tasa. Al investigar con el texto de (Grolemund, 2015) existen los siguientes operadores: `if`, `for`, `while`, `repeat`, pero ninguno ayuda a mis propósitos, busco algo similar a `case_when`. La IA menciona que ese es el acorde a seleccionar valores a partir de más de dos condiciones. Se valida.
+
+```{r}
+tasa <- tribble(
+  ~tasa,
+  "1",
+  "2",
+  "3"
+)
+
+tasa |> 
+  mutate(
+    res = case_when(
+      tasa == "1" ~ "hola",
+      tasa == "2" ~ "mundo",
+      TRUE ~ NA
+    )
+  )
+```
+
+La manera de hacerlo es que el argumento de entrada sea tipo tibble. Se valida
+
+```{r}
+tasa <- c("1", "2", "3")
+tibble(tasa) |> 
+  mutate(
+    res = case_when(
+      tasa == "1" ~ "hola",
+      tasa == "2" ~ "mundo",
+      TRUE ~ NA
+    )
+  )
+```
+
+Por tanto, debe convertirse antes a tibble
+
+```{r}
+aplicar_filtro <- function(tasa){
+  tibble(tasa) |> 
+    mutate(
+      filtro = case_when(
+        tasa == "tp" ~ "clase1 == 1 ; eda >= 15 & eda <= 98",
+        tasa == "td" ~ "clase2 == 2 ; clase1 == 1", 
+        tasa == "topd" ~ "clase2 == 2 & dur9c == 2  ; clase1 == 1", 
+        tasa == "tpg" ~ "clase2 == 2 & tpg_p8a == 1 ; clase1 == 1", 
+        tasa == "tta" ~ "remune2c == 1 ; clase2 == 1", 
+        tasa == "tsub" ~ "sub_o == 1 ; clase2 == 1", 
+        tasa == "tcco" ~ "tcco == 1 | tcco == 2 | tcco == 3 ; clase2 == 1", 
+        tasa == "tosi1" ~ "tue2 == 5 ; clase2 == 1", 
+        tasa == "til1" ~ "emp_ppal == 1 ; clase2 == 1", 
+        tasa == "tosi2" ~ "tue2 == 5  ; clase2 == 1 & ambito1 != 1",
+        tasa == "til2" ~ "emp_ppal == 1 & ambito1 != 1  ; clase2 == 1 & ambito1 != 1",
+        TRUE ~ NA
+      )
+    ) |> 
+    separate(
+      col = filtro,
+      into = c("filtro_num", "filtro_den"),
+      sep = ";"
+    )
+}
+```
+
+Se valida
+
+```{r}
+aplicar_filtro("tp")
+```
+
+No le veo tanto sentido. Se deja como está
+
+En resumen, las funciones a utilizar son
+
+```{{r}}
+# tasas complementarias a nivel general
+calcular_tasas_tot <- function(datos, nombre, filtro_num, filtro_den){
+  datos <- get(datos)
+  
+  datos |>
+    summarise(
+      nombre = nombre,
+      numerador = survey_total(  !!parse_expr(filtro_num)  , vartype = NULL, na.rm = TRUE),
+      denominador = survey_total(  !!parse_expr(filtro_den)  , vartype = NULL, na.rm = TRUE),
+      tasa = numerador / denominador
+    )
+}
+
+# tasas complementarias desagregadas
+calcular_tasas_sub <- function(datos, nombre, grupo, filtro_num, filtro_den){
+  datos <- get(datos)
+  grupo_sym <- sym(grupo)
+  
+  datos |>
+    group_by(  !!grupo_sym  ) |> 
+    summarise(
+      nombre = nombre,
+      numerador = survey_total(  !!parse_expr(filtro_num)  , vartype = NULL, na.rm = TRUE),
+      denominador = survey_total(  !!parse_expr(filtro_den)  , vartype = NULL, na.rm = TRUE),
+      tasa = numerador / denominador
+    ) |> 
+    rename("valor" :=  !!grupo_sym) |> 
+    mutate(grupo = grupo) |> 
+    relocate(grupo, .before = valor)
+}
+
+calcular_total_tot <- function(datos, poblacion, filtro){
+  datos <- get(datos)
+  
+  datos |> 
+  summarise(
+    poblacion = poblacion,
+    n = n(),
+    tot = survey_total(  !!parse_expr(filtro)  , vartype = c("se", "cv", "ci"))
+  ) 
+}
+
+
+calcular_total_sub <- function(datos, grupo, filtro){
+  datos <- get(datos)
+  grupo_sym <- sym(grupo)
+  
+  datos |> 
+  group_by(  !!grupo_sym  ) |>
+  summarise(
+    n = n(),
+    tot = survey_total(  !!parse_expr(filtro)  , vartype = c("se", "cv", "ci"))
+  ) |> 
+    rename("valor" :=  !!grupo_sym) |> 
+    mutate(grupo = grupo) |> 
+    relocate(grupo, .before = valor)
+}
+
+# se define como encuesta compleja
+definir_encuesta <- function(datos){
+  datos |>
+    as_survey_design(
+      ids = upm,
+      strata = est,
+      weights = fac_tri,
+      nest = TRUE
+    )
+}
+
+validar_precision <- function(datos, estimador_cv){
+  datos <- get(datos)
+  cv_sym <- sym(estimador_cv)
+
+  datos |>
+    mutate(
+      nivel_precision = case_when(
+        !!cv_sym    <= 0.15 ~ "Alta",
+        !!cv_sym    > 0.15 &    !!cv_sym     <= 0.30 ~ "Moderada",
+        !!cv_sym    > 0.30 ~ "Baja",
+        TRUE ~ NA
+      )
+    )
+}
+```
+
+Se añaden al script correspondiente
+
