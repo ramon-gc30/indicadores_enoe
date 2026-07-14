@@ -1,9 +1,3 @@
----
-editor_options: 
-  markdown: 
-    wrap: 72
----
-
 # Automatización de indicadores de la ENOE
 
 Este proyecto tiene como objetivo crear los scripts que permitan automatizar:
@@ -71,8 +65,12 @@ De esta manera, se espera que este proyecto agilice la obtención de datos refer
 # Referencias
 
 INEGI, [Instituto Nacional de Estadística y Geografía]. (2023a). Cómo se hace la ENOE. Métodos y procedimientos (3ra ed.). <https://www.inegi.org.mx/app/biblioteca/ficha.html?upc=889463909743>
+
 INEGI, [Instituto Nacional de Estadística y Geografía]. (2023b). Encuesta Nacional de Ocupación y Empleo. ENOE. Conociendo la base de datos. <https://www.inegi.org.mx/rnm/index.php/catalog/1121/related-materials>
+
 INEGI, [Instituto Nacional de Estadística y Geografía]. (2024). Encuesta Nacional de Ocupación y Empleo (ENOE). Estructura de la base de datos. <https://www.inegi.org.mx/contenidos/programas/enoe/15ymas/doc/enoe_123_fd_c_bas_amp.pdf>
+
 INEGI, [Instituto Nacional de Estadística y Geografía]. (2025). Red Nacional de Metadatos. Encuesta Nacional de Ocupación y Empleo 2025, Cuestionario ampliado, datos correspondientes al primer trimestre. <https://www.inegi.org.mx/rnm/index.php/catalog/1104/data-dictionary>
+
 INEGI, [Instituto Nacional de Estadística y Geografía]. (2026). Sumó 61.1 millones de personas la población económicamente activa en el primer trimestre de 2026: 622 mil más respecto al mismo trimestre de un año antes (Boletín de Indicador No. 301/26; Encuesta Nacional de Ocupación y Empleo (ENOE), población de 15 años y más de edad. Primer trimestre de 2026). <https://www.inegi.org.mx/contenidos/saladeprensa/boletines/2026/enoe/enoe2026_05.pdf>
 
