@@ -3,14 +3,3 @@
 .Rhistory
 .RData
 .Ruserdata
-
-# carpetas
-1_paquete_pacman_files/
-
-# archivos con extensiones específicas
-*.qmd
-*.html
-*.xlsx
-
-# archivos específicos
-scripts/0_funciones_v1*
