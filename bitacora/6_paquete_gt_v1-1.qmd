@@ -1,0 +1,346 @@
+---
+title: "Paquete `gt`"
+format: html
+---
+
+## Introducción
+
+En el documento `C:/Prog/indicadores_enoe/bitacora` se determinó trabajar con el paquete `gt` para la realización de cuadros estadísticos. Por lo tanto, en este documento se pretende:
+
+* Instalar el paquete `gt`
+* Realizar los ejemplos mostrados en <https://gt.rstudio.com/articles/gt.html> 
+
+En primer lugar, se instala dicho paquete
+
+```{r}
+#| label: setup
+
+# system.file(package = "gt")
+library(pacman)
+library(gt)
+library(tidyverse)
+```
+
+Está instalado en mi ordenador, se valida si es la versión actual. Esto se puede hacer con el `old.packages` o con `pacman`. 
+
+```{r}
+old.packages(instPkgs = installed.packages("gt"))
+# old.packages(instPkgs = "gt")
+find.package("gt")
+# old.packages(instPkgs = find.package("gt"))
+old.packages(find.package("gt"))
+```
+
+Con `pacman`
+
+```{r}
+pacman::p_version("gt")
+pacman::p_version_cran("gt")
+```
+
+Sí está actualizada.
+
+Por tanto, se llama dicho paquete
+
+```{{r}}
+library(gt)
+```
+
+En este documento, se realizarán los ejemplos descritos en <https://gt.rstudio.com/articles/gt.html> 
+
+En primer lugar, se trabajará con el código siguiente:
+
+```{{r}}
+# Take the `islands` dataset and use some
+# dplyr functionality to obtain the ten
+# biggest islands in the world
+islands_tbl <-
+  tibble(
+    name = names(islands),
+    size = islands
+  ) |>
+  slice_max(size, n = 10)
+
+# Display the table
+islands_tbl
+```
+
+¿Dónde está ubicado `islands`?
+
+```{{r}}
+?islands
+```
+
+Está en el paquete `datasets`
+
+```{r}
+datasets::islands
+```
+
+Lo primero que hace el autor es crear un tibble a partir de dicho conjunto de datos, pero ¿qué hace la función `names`? 
+
+Pertenece al paquete `base` que obtiene o establece los nombres de un objeto <https://rdrr.io/r/base/names.html>. Se valida
+
+```{r}
+names(datasets::islands)
+```
+
+La duda que tengo, extrae la primera "columna" o aquellos que tienen texto? Se valida
+
+```{r}
+datasets::attenu
+names(datasets::attenu)
+
+datasets::WorldPhones
+names(datasets::WorldPhones)
+
+datasets::cars
+names(datasets::cars)
+```
+
+Ya entendí, extrae el nombre de las columnas del conjunto de datos. Por ejemplo,
+
+```{r}
+datasets::cars
+```
+
+Es un marco de datos de dos columnas (variables). Por tanto, la función `names` devolverá el nombre de cada objeto del marco de datos, esto es, sus variables (columnas).
+
+```{r}
+base::names(datasets::cars)
+```
+
+En ese sentido, regresemos al caso del conjunto de datos `islands`
+
+```{r}
+datasets::islands
+```
+
+Los nombres de las "columnas" son los nombres de las islas, por tanto `names` retornará dichos valores
+
+```{r}
+names(datasets::islands)
+```
+
+Dicho en otras palabras, se usa `names` dado la estructura del conjunto de datos `island`
+
+Por su parte, `slice_max` selecciona las filas con los valores más grandes <https://dplyr.tidyverse.org/reference/slice.html> 
+
+Por tanto, la primera parte del código crea una tabla ordenada (tibble) y selecciona las primeras 10 filas con los valores más grandes. 
+
+```{r}
+islands_tbl <- tibble(
+  # obtiene los nombres de los objetos
+  name = base::names(datasets::islands),
+  size = islands
+) |> 
+  slice_max(size, n = 10)
+
+islands_tbl
+```
+
+La documentación del paquete `gt` menciona que todo se realiza en primera instancia por la función `gt` donde requiere como argumento obligatorio el conjunto de datos, ya sea un data frame o un tibble.
+
+<https://cran.r-project.org/web/packages/gt/refman/gt.html#gt> 
+
+Esta función devuelve un objeto de tabla tipo `gt`. 
+
+```{r}
+gt(islands_tbl)
+```
+
+Vamos a explorar los argumentos adicionales, según el documento introductorio del paquete <https://gt.rstudio.com/articles/gt.html>
+
+Dicho documento menciona que se puede modificar el estilo visual de una tabla (data frame o tibble) entre distintas partes de una tabla:
+
+* Encabezado: título y subtítulo
+* Etiquetas de la fila [título y valores de la primera columna]
+* Etiquetas de columna [contiene títulos de columnas que pueden estar agrupados en dos o más columnas]
+* Cuerpo de la tabla
+* Pie de tabla: notas al pie y fuentes de origen
+
+Aquello se modifican usando las funciones que empienzan con `tab_...()`. Por ejemplo, para modificar el título de la tabla se utiliza `tab_header`
+
+```{r}
+gt_tbl <- gt(islands_tbl)
+```
+
+```{r}
+gt_tbl |> 
+  tab_header(
+    title = "Título de la tabla",
+    subtitle = "Subtítulo de la tabla"
+  )
+```
+
+Incluso se puede añadir estilo al puro estilo Markdown, por ejemplo
+
+```{r}
+gt_tbl |> 
+  tab_header(
+    title = md("**Título** de la tabla"),
+    subtitle = md("*Subtítulo* de la tabla")
+  )
+```
+
+Para insertar notas de origen [fuente] se hace con `tab_source_note`
+
+```{r}
+gt_tbl |> 
+  tab_source_note(
+    source_note = "Fuente. Elaboración propia"
+  )
+```
+
+Incluso se pueden insertar más de una función 
+
+```{r}
+gt_tbl |> 
+  tab_source_note(
+    source_note = md("*Fuente*. Elaboración propia")
+  ) |> 
+  tab_source_note(
+    source_note = "Fuente 2"
+  )
+```
+
+Para el caso de notas al pie de página, se utiliza la función `tab_footnote`
+
+```{r}
+gt_tbl |> 
+  tab_footnote(
+    footnote = "Ejemplo",
+    locations = cells_body(columns = name, rows = 1:10)
+  )
+```
+
+Se observa que `footnote` junto con `cells_body` permite insertar notas a pie de tabla.
+
+En cuanto al stub [encabezado de la primera fila de la tabla], se especifica qué fila es mediante `rowname_col`
+
+```{{r}}
+islands_tbl |> 
+  gt(rowname_col = "name")
+``` 
+
+Arroja error, ¿por qué? El autor lo hace esta manera
+
+```{{r}}
+# Create a gt table showing ten of the
+# largest islands in the world; this
+# time with a stub
+gt_tbl <-
+  islands_tbl |>
+  gt(rowname_col = "name")
+
+# Show the gt table
+gt_tbl
+```
+
+Es decir, vuelve a definir el conjunto de datos como tabla gt.
+
+Se valida
+
+```{r}
+gt_tbl <- islands_tbl |> 
+  gt(rowname_col = "name")
+
+gt_tbl
+```
+
+En efecto! El argumento `rowname_col` se utiliza en data frames o tibbles, no en tablas `gt`.
+
+```{r}
+gt_tbl |> 
+  tab_stubhead(label = "Ejemplo")
+```
+
+Entiendo, `rowname_col` indica que fila fungirá como encabezado de tabla, mientras que `tab_stubhead` especifica la etiqueta de dicho encabezado.
+
+El único tema es que genera una línea vertical, esto no es compatible con el estilo que sugiere APA 7a ed. **PENDIENTE**
+
+También se pueden añadir encabezado por grupos de filas, especificando las etiquetas y las filas que conformarán los distintos grupos, aquello con `tab_row_group`
+
+```{r}
+gt_tbl |> 
+  tab_row_group(
+    label = "Ejemplo",
+    rows = 3:4
+  ) |> 
+  tab_row_group(
+    label = "verbigracia",
+    rows = c("New Guinea", "Borneo")
+  )
+```
+
+Se observa que se muestra el grupo especificado al final de la instrucción
+
+Asimismo, si el conjunto de datos contiene una columna que conforma los distintos grupos, también puede añadirse con `groupname_col`
+
+El último ejemplo que maneja la página está relacionado a las etiquetas de columnas, para lo cual utilizan el conjunto de datos `airquality`
+
+```{r}
+datasets::airquality
+```
+
+Como ya es un data frame, no es necesario convertirlo a tibble.
+
+Lo primero que hace el autor es añadir una columna que contiene el año de registro de dichas observaciones
+
+```{r}
+airquality_m <- airquality |> 
+  mutate(year = 1973L) |> 
+  slice(1:10)
+
+airquality_m
+```
+
+¿Por qué añade `L`?
+
+Después, agrupa las columnas 
+
+```{r}
+gt_tbl <- airquality_m |> 
+  gt() |> 
+    tab_spanner(
+      label = "Etiqueta 1",
+      columns = c(year, Month, Day)
+    ) |> 
+    tab_spanner(
+      label = "Etiqueta 2",
+      columns = c(Ozone, Solar.R, Wind, Temp)
+    )
+
+gt_tbl
+```
+
+Se observa que primero se define como objeto `gt`
+
+Después, el autor mueve las columnas
+
+```{r}
+gt_tbl <- gt_tbl |> 
+  cols_move_to_start(
+    columns = c(year, Month, Day)
+  )
+
+gt_tbl
+```
+
+Y al final cambia el estilo a los encabezados de las columnas, en vez de tipo markdown lo hace tipo HTML con `html()`
+
+```{r}
+gt_tbl |> 
+  cols_label(
+    year = "Año",
+    Month = "Mes",
+    Day = "Día",
+    # salto de línea
+    Ozone = html("Ozono,<br>ppbV"),
+    Solar.R = html("Solar R.,<br>cal/m<sup>2</sup>"),
+    Wind = html("Viento, <br>mph"),
+    Temp = html("Temperatura,<br>&deg;F")
+  )
+```
+
+Y listo. Hasta ahí terminan los ejemplos de la página web. Ahora se puede practicar con nuestros datos procesados.
