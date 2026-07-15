@@ -22,4 +22,4 @@ tasas_tot <- read_rds(here::here("datos", "tasas_tot.rds"))
 
 Para el tema de los cuadros, la opción predilecta que manejaba la IA era `kableExtra`. No obstante, (Zimmer et. al., 2024) utilizan `gt` y `gtsummary` para realizar los cuadros en datos de encuestas complejas, véase sección 8.3. El código se ve fácil de interpretar. ¿Cuál es la diferencia entre `kableExtra` y `gt`?
 
-
+Después de revisar los ejemplos de dicha sección y leer la documentación del paquete `git` disponible en <https://gt.rstudio.com/index.html>, se decide trabajar con dicho paquete. Para lo cual, se realizarán los ejemplos mostrados en <https://gt.rstudio.com/articles/gt.html> 
