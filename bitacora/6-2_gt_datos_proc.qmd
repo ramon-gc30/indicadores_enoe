@@ -1,0 +1,248 @@
+---
+date: "18-07-2026"
+---
+
+Este documento es la continuación de `C:/Prog/indicadores_enoe/bitacora/6_paquete_gt_v1-1.qmd` donde se intentará crear los cuadros estadísticos mediante el paquete `gt`.
+
+```{r}
+#| label: setup
+#| message: false
+#| warning: false
+
+library(tidyverse)
+library(gt)
+library(fs)
+library(here)
+```
+
+Se trabajará con los datos procesados ubicados en `datos`
+
+```{r}
+fs::dir_tree(here::here("datos"))
+```
+
+En específico, con `tasas_tot` 
+
+```{r}
+tasas_tot <- read_rds(here::here("datos", "tasas_tot.rds"))
+```
+
+Dado que contiene el menor tamaño 
+
+```{r}
+tasas_tot
+```
+
+En primer lugar, vamos a enfocarnos en los encabezados de las columnas. Esto se hace con `cols_label`, para lo cual ya tiene que estar definido el objeto `gt`
+
+```{r}
+tasas_tot |> 
+  gt(
+    rowname_col = "nombre"
+  )
+
+tasas_tot |> 
+  gt(
+    # rowname_col = "nombre",
+    rownames_to_stub = TRUE
+  )
+
+tasas_tot |> 
+  gt(
+    rowname_col = "nombre",
+    rownames_to_stub = TRUE
+  )
+```
+
+```{r}
+tasas_tot |> 
+  gt() |> 
+  cols_label(
+    nombre = "Tasas",
+    tasa = "Total"
+  )
+```
+
+```{r}
+tasas_tot |> 
+  gt() |> 
+  cols_label(
+    nombre = "Tasas",
+    tasa = "Total"
+  ) |>
+  cols_hide(2:3)
+```
+
+```{r}
+tasas_tot |> 
+  gt() |> 
+  cols_label(
+    nombre = "Tasas",
+    tasa = "Total"
+  ) |>
+  cols_hide(2:3) |>
+  fmt_percent(
+    columns = "tasa",
+    decimals = 1
+  )
+
+tasas_tot |> 
+  gt() |> 
+  cols_label(
+    nombre = "Tasas",
+    tasa = "Total"
+  ) |>
+  cols_hide(2:3) |>
+  fmt_number(
+    columns = "tasa",
+    decimals = 1,
+    scale_by = 100
+  )
+```
+
+```{r}
+valores <- c(
+  "Tasa de participación" = "tp",
+  "Tasa de desocupación (TD)" = "td",
+  "Tasa de ocupación parcial y desocupación (TOPD1)" = "topd",
+  "Tasa de presión general (TPRG)" = "tpg",
+  "Tasa de trabajo asalariado" = "tta",
+  "Tasa de subocupación" = "tsub",
+  "Tasa de condiciones críticas de ocupación (TCCO)" = "tcco",
+  "Tasa de informalidad laboral 1 (TIL1)" = "til1",
+  "Tasa de ocupación en el sector informal 1 (TOSI1)" = "tosi1",
+  "Tasa de informalidad laboral 2 (TIL2)" = "til2",
+  "Tasa de ocupación en el sector informal 2 (TOSI2)" = "tosi2"
+)
+
+tasas_tot_proc <- tasas_tot |> 
+  mutate(
+    nombre = fct_recode(nombre, !!!valores)
+  )
+
+tasas_tot_proc
+```
+
+```{r}
+tasas_tot_proc |> 
+  gt() |> 
+  cols_label(
+    nombre = "Tasas",
+    tasa = "Total"
+  ) |>
+  cols_hide(2:3) |>
+  fmt_number(
+    columns = "tasa",
+    decimals = 1,
+    scale_by = 100
+  ) |>
+  cols_align(
+    columns = "nombre",
+    align = "left"
+  )
+```
+
+Posteriormente, se añade el encabezado de columnas. Esto se realiza con `tab_spanner`
+
+```{r}
+tasas_tot_proc |> 
+  gt() |> 
+  cols_label(
+    nombre = "Tasas",
+    tasa = "Total"
+  ) |>
+  cols_hide(2:3) |>
+  fmt_number(
+    columns = "tasa",
+    decimals = 1,
+    scale_by = 100
+  ) |>
+  cols_align(
+    columns = "nombre",
+    align = "left"
+  ) |> 
+  tab_spanner(
+    label = "Primer trimestre de 2026",
+    columns = tasa
+  )
+```
+
+Listo! Este cuadro ya se parece más al mostrado en el boletín de la ENOE 1T-2026, véase cuadro 6 p. 9. 
+
+Queda pendiente cómo exportarlo.
+
+Eso se puede realizar mediante `gt::gtsave`, véase `?gtsave` la cual soporta los siguientes formatos de salida: HTML, tex, ltx, rtf, docx. 
+
+Se valida
+
+```{r}
+tasas_tot_gt <- tasas_tot_proc |> 
+  gt() |> 
+  cols_label(
+    nombre = "Tasas",
+    tasa = "Total"
+  ) |>
+  cols_hide(2:3) |>
+  fmt_number(
+    columns = "tasa",
+    decimals = 1,
+    scale_by = 100
+  ) |>
+  cols_align(
+    columns = "nombre",
+    align = "left"
+  ) |> 
+  tab_spanner(
+    label = "Primer trimestre de 2026",
+    columns = tasa
+  )
+
+tasas_tot_gt
+```
+
+Se valida guardar la tabla en formato HTML
+
+```{r}
+gtsave(tasas_tot_gt, filename = "tasas_tot.html")
+```
+
+Sí genera el archivo correctamente, se validan los otros formatos
+
+```{r}
+# find.package(package = "rmarkdown")
+library(rmarkdown)
+gtsave(tasas_tot_gt, filename = "tasas_tot.docx")
+```
+
+También permite generar el archivo Word. Pero cómo guardar en formato XLSX?
+
+```{r}
+library(writexl)
+```
+
+La documentación de `?write_xlsx`, al parecer, solamente soporta marcos de datos (data frames), es decir, no permitiría generar con tablas gt, se valida
+
+```{{r}}
+writexl::write_xlsx(
+  tasas_tot_gt, 
+  path = "tasas_tot.xlsx"
+)
+```
+
+Precisamente arroja dicho error
+
+```
+Error en writexl::write_xlsx(tasas_tot_gt, path = "tasas_tot.xlsx"): 
+  Argument x must be a data frame or list of data frames
+```
+
+Se valida archivo rtf
+
+```{r}
+gt::gtsave(tasas_tot_gt, filename = "tasas_tot.rtf")
+```
+
+¿Qué formato sería el más adecuado? Considero que docx. Entonces, los cuadros de salida se guardarán en formato Word.
+
+Ahora se generarán los cuadros desagregados.
+
