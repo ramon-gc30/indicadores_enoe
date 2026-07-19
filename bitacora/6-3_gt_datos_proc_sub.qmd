@@ -1,0 +1,232 @@
+---
+date: "18-07-2026"
+format: gfm
+---
+
+Se continua con la generación de cuadros estadísticos. Ahora toca el turno de cuadros desagregados por grupos poblacionales.
+
+```{r}
+#| label: setup
+#| message: false
+#| warning: false
+
+library(tidyverse)
+library(gt)
+library(fs)
+library(here)
+library(rmarkdown)
+
+tasas_tot <- read_rds(here::here("datos", "tasas_tot.rds"))
+tasas_sub <- read_rds(here::here("datos", "tasas_sub.rds"))
+```
+
+Para el caso general, el cuadro estadístico se genera como sigue
+
+```{r}
+valores <- c(
+  "Tasa de participación" = "tp",
+  "Tasa de desocupación (TD)" = "td",
+  "Tasa de ocupación parcial y desocupación (TOPD1)" = "topd",
+  "Tasa de presión general (TPRG)" = "tpg",
+  "Tasa de trabajo asalariado" = "tta",
+  "Tasa de subocupación" = "tsub",
+  "Tasa de condiciones críticas de ocupación (TCCO)" = "tcco",
+  "Tasa de informalidad laboral 1 (TIL1)" = "til1",
+  "Tasa de ocupación en el sector informal 1 (TOSI1)" = "tosi1",
+  "Tasa de informalidad laboral 2 (TIL2)" = "til2",
+  "Tasa de ocupación en el sector informal 2 (TOSI2)" = "tosi2"
+)
+
+tasas_tot_proc <- tasas_tot |> 
+  mutate(
+    nombre = fct_recode(nombre, !!!valores)
+  )
+
+tasas_tot_gt <- tasas_tot_proc |> 
+  gt() |> 
+  cols_label(
+    nombre = "Tasas",
+    tasa = "Total"
+  ) |>
+  cols_hide(2:3) |>
+  fmt_number(
+    columns = "tasa",
+    decimals = 1,
+    scale_by = 100
+  ) |>
+  cols_align(
+    columns = "nombre",
+    align = "left"
+  ) |> 
+  tab_spanner(
+    label = "Primer trimestre de 2026",
+    columns = tasa
+  )
+
+tasas_tot_gt
+
+# gtsave(tasas_tot_gt, filename = "tasas_tot.docx")
+```
+
+Por su parte, el cuadro a nivel desagregado por género se obtiene como sigue
+
+```{r}
+tasas_sex <- tasas_sub |> 
+  filter(grupo == "sex") |> 
+  pivot_wider(
+    id_cols = nombre,
+    names_from = valor,
+    names_prefix = "sex_",
+    # names_sort = TRUE,
+    values_from = tasa
+  )
+  # relocate(sex_1, .after = sex_2)
+
+tasas_sex
+```
+
+Se repite procedimiento del caso general
+
+```{r}
+tasas_sex_proc <- tasas_sex |> 
+  mutate(
+    nombre = fct_recode(nombre, !!!valores)
+  )
+
+tasas_sex_proc
+```
+
+Ahora se crea tabla gt
+
+```{r}
+tasas_sex_gt <- tasas_sex_proc |> 
+  gt() |> 
+  tab_spanner(
+    label = "Primer trimestre de 2026",
+    columns = sex_1:sex_2
+  ) |> 
+  cols_label(
+    nombre = "Tasas",
+    sex_1 = "Hombres",
+    sex_2 = "Mujeres"
+  ) |> 
+  cols_move(
+    columns = sex_1,
+    after = sex_2
+  ) |> 
+  cols_align(align = "left", columns = "nombre") |> 
+  fmt_number(
+    columns = -nombre,
+    decimals = 1,
+    scale_by = 100
+  )
+
+tasas_sex_gt
+```
+
+Listo!
+
+Supuestamente para seleccionar filas a partir de su índice (número de fila), se utiliza `slice`
+
+```{r}
+tasas_tot |> 
+  slice(1, .preserve = TRUE)
+```
+
+La IA sugiere para mover filas la siguiente instrucción:
+
+```{{r}}
+mi_tabla %>% slice(10:15, 1:n()) %>% distinct()
+```
+
+Donde `distinct` evita valores duplicados
+
+Después de TCCO, el orden es:
+
+* TIL1
+* TOSI1
+* TIL2
+* TOSI2
+
+Y en la tabla está así
+
+* TOSI1
+* TIL1
+* TOSI2
+* TIL2
+
+Se cambia orden
+
+```{r}
+tasas_tot |> 
+  mutate(
+    id = row_number()
+  )
+```
+
+```{r}
+tasas_tot_proc <- tasas_tot |> 
+  slice(1:7, 9, 8, 11, 10)
+
+tasas_tot_proc
+```
+
+Listo!
+
+Ahora unimos con la tabla que contiene las tasas por género
+
+```{r}
+tasas_tot_proc <- tasas_tot_proc |> 
+  left_join(tasas_sex, by = "nombre")
+
+tasas_tot_proc
+```
+
+Después, insertamos los valores
+
+```{r}
+tasas_tot_proc <- tasas_tot_proc |> 
+  mutate(nombre = fct_recode(nombre, !!!valores))
+
+tasas_tot_proc
+```
+
+Y por último, creamos la tabla gt
+
+```{r}
+tasas_tot_gt <- tasas_tot_proc |> 
+  gt() |> 
+  tab_spanner(
+    label = "Primer trimestre de 2026",
+    columns = -nombre
+  ) |> 
+  cols_hide(columns = numerador:denominador) |> 
+  cols_label(
+    nombre = "Tasa",
+    tasa = "Total",
+    sex_1 = "Hombres",
+    sex_2 = "Mujeres"
+  ) |> 
+  cols_move_to_end(sex_1) |> 
+  cols_align(columns = nombre, align = "left") |> 
+  fmt_number(columns = -nombre, decimals = 1, scale_by = 100)
+
+tasas_tot_gt
+```
+
+Listo! El único valor que no coincido con INEGI, es TCCO **VALIDAR**
+
+Se guarda y listo
+
+```{r}
+gtsave(tasas_tot_gt, filename = "tasas_tot.docx", path = here::here("cuadros"))
+```
+
+Listo!
+
+```{r}
+tasas_sub |> 
+  filter(grupo == "cd_a") |> 
+  distinct(valor)
+```
+
