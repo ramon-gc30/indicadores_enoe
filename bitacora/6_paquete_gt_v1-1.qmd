@@ -1,5 +1,7 @@
 ---
 title: "Paquete `gt`"
+date: "15-07-2026"
+date-format: full
 format: html
 ---
 
@@ -34,6 +36,8 @@ old.packages(find.package("gt"))
 Con `pacman`
 
 ```{r}
+# getOption("repos")
+options(repos = c("CRAN" = "https://cran.rstudio.com/"))
 pacman::p_version("gt")
 pacman::p_version_cran("gt")
 ```
