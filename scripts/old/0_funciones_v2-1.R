@@ -129,12 +129,28 @@ descargar_microdatos_enoe <- function(url, cuestionario){
 # datos |> 
 #   filter(r_def == 0, c_res == 1 | c_res == 3, between(eda, 15, 98))
 
+aplicar_criterio <- function(datos, ponderador){
+  datos |>
+    mutate(
+      eda = as.integer(eda),
+      {{ponderador}} := as.double(  {{ponderador}}  )
+    ) |>
+    # criterio general (INEGI, 2023:28)
+    filter(
+      r_def == 0,
+      c_res == 1 | c_res == 3,
+      between(eda, 15, 98)
+    )
+}
+
+
 # tasas complementarias a nivel general
 calcular_tasas_tot <- function(datos, nombre, filtro_num, filtro_den){
-  datos <- get(datos)
+  df <- get(datos)
   
-  datos |>
+  df |>
     summarise(
+      datos = datos,
       nombre = nombre,
       numerador = survey_total(  !!parse_expr(filtro_num)  , vartype = NULL, na.rm = TRUE),
       denominador = survey_total(  !!parse_expr(filtro_den)  , vartype = NULL, na.rm = TRUE),
@@ -162,10 +178,11 @@ calcular_tasas_sub <- function(datos, nombre, grupo, filtro_num, filtro_den){
 
 # total agregado
 calcular_pob_tot <- function(datos, poblacion, filtro){
-  datos <- get(datos)
+  df <- get(datos)
   
-  datos |> 
+  df |> 
     summarise(
+      datos = datos,
       poblacion = poblacion,
       # n = n(),
       tot = survey_total(  !!parse_expr(filtro)  , vartype = c("se", "cv", "ci"))
@@ -191,12 +208,12 @@ calcular_pob_sub <- function(datos, poblacion, grupo, filtro){
 }
 
 # se define como encuesta compleja (INEGI, 2023: 42)
-definir_encuesta <- function(datos){
+definir_encuesta <- function(datos, ponderador){
   datos |>
     as_survey_design(
       ids = upm,
       strata = est,
-      weights = fac_tri,
+      weights =  {{ponderador}}  ,
       nest = TRUE
     )
 }
