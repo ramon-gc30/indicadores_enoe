@@ -1,0 +1,209 @@
+---
+date: "19-07-2026"
+format: gfm
+---
+
+En este documento se intentará seleccionar a las ciudades con más de 100 mil habitantes para el cuadro estadístico correspondiente que reporta el INEGI
+
+```{r}
+#| label: setup
+#| warning: false
+#| message: false
+
+library(tidyverse)
+library(here)
+library(rlang)
+library(srvyr)
+source(here::here("scripts", "0_funciones_v2-1.R"))
+```
+
+En primer lugar, se descargan los microdatos de SDEM
+
+```{r}
+url <- "https://www.inegi.org.mx/contenidos/programas/enoe/15ymas/microdatos/enoe_2026_trim1_csv.zip"
+cuestionario <- "SDEM"
+
+sdem <- descargar_microdatos_enoe(url, cuestionario)
+```
+
+Se valida la función que aplica el criterio general
+
+```{r}
+aplicar_criterio <- function(datos, ponderador){
+  datos |> 
+    mutate(
+      eda = as.integer(eda),
+      {{ponderador}} := as.double(  {{ponderador}}  )
+    ) |> 
+    filter(
+      r_def == 0, 
+      c_res == 1 | c_res == 3,
+      between(eda, 15, 98)
+    )
+}
+
+aplicar_criterio(sdem, fac_tri) |> 
+  select(fac_tri)
+```
+
+Sí funciona, se deja en `scripts/0_funciones_v2-1.R`
+
+En primer lugar, se se requiere obtener el total de habitantes por ciudad aplicando el criterio general
+
+```{r}
+sdem <- aplicar_criterio(sdem, fac_tri)
+
+sdem <- definir_encuesta(sdem, fac_tri)
+```
+
+Se calcula total
+
+```{r}
+tot_cd <- sdem |> 
+  group_by(cd_a) |>
+  summarise(
+    tot = survey_total(vartype = NULL)
+  )
+
+tot_cd
+```
+
+Seleccionamos a las ciudades mayores a 100 mil
+
+```{r}
+tot_cd |>
+  mutate(cd_a = as.integer(cd_a)) |>
+  filter(cd_a < 81 & tot >= 100000)
+```
+
+Se asignan los valores
+
+```{r}
+valores <- c(
+  "México" = "1",
+  "Guadalajara" = "2",
+  "Monterrey" = "3",
+  "Puebla" = "4",
+  "León" = "5",
+  "Torreón" = "6",
+  "San Luis Potosí" = "7",
+  "Mérida" = "8",
+  "Chihuahua" = "9",
+  "Tampico" = "10",
+  "Veracruz" = "12",
+  "Acapulco" = "13",
+  "Aguascalientes" = "14",
+  "Morelia" = "15",
+  "Toluca" = "16",
+  "Saltillo" = "17",
+  "Villahermosa" = "18",
+  "Tuxtla Gutiérrez" = "19",
+  "Ciudad Juárez" = "20",
+  "Tijuana" = "21",
+  "Culiacán" = "24",
+  "Hermosillo" = "25",
+  "Durango" = "26",
+  "Tepic" = "27",
+  "Campeche" = "28",
+  "Cuernavaca" = "29",
+  "Coatzacoalcos" = "30",
+  "Oaxaca" = "31",
+  "Zacatecas" = "32",
+  "Colima" = "33",
+  "Querétaro" = "36",
+  "Tlaxcala" = "39",
+  "La Paz" = "40",
+  "Cancún" = "41",
+  "Ciudad del Carmen" = "42",
+  "Pachuca" = "43",
+  "Mexicali" = "44",
+  "Reynosa" = "46",
+  "Tapachula" = "52",
+  "Áreas rurales hasta 86" = "81",
+  "Áreas rurales o comp. urb." = "82",
+  "Áreas rurales o comp. urb." = "83",
+  "Áreas rurales o comp. urb." = "84",
+  "Áreas rurales o comp. urb." = "85",
+  "Áreas rurales o comp. urb." = "86"
+)
+```
+
+Fuente. diccionario de datos
+
+```{r}
+tot_cd |>
+  mutate(cd_a = as.integer(cd_a)) |>
+  filter(cd_a < 81 & tot >= 100000) |>
+  mutate(
+    cd_a = factor(cd_a),
+    cd_a = fct_recode(cd_a, !!!valores)
+  )
+```
+
+Se ordena de A-Z
+
+```{r}
+tot_cd |>
+  mutate(cd_a = as.integer(cd_a)) |>
+  filter(cd_a < 81 & tot >= 100000) |>
+  mutate(
+    cd_a = factor(cd_a),
+    cd_a = fct_recode(cd_a, !!!valores),
+    cd_a = as.character(cd_a)
+  ) |>
+  arrange(cd_a)
+```
+
+Se valida con el cuadro 6
+
+Sí son esas ciudades, méxico es Ciudad de México (CDMX y Méx.)
+
+Sin embargo, al revisar los valores de `cd_a` si se quitan los valores iguales o superiores a 81 quedan 39 que son los que se muestran en el cuadro estadístico.
+
+Así pues, solo se omiten dichos valores y listo. No obstante, quedaría pendiente el cálculo de las tasas a nivel general considerando solamente las 39 ciudades. Se me ocurre filtrar `sdem` y hacer el cálculo. Se crea tabla correspondiente
+
+```{r}
+sdem_cd_mayor_cien <- sdem |> 
+  filter(
+    cd_a != "81" & cd_a != "82" & cd_a != "83" &
+      cd_a != "84" & cd_a != "85" & cd_a != "86"
+  )
+```
+
+Se calcula población total
+
+```{r}
+calcular_pob_tot("sdem_cd_mayor_cien", "ocupada", "clase2 == 1")
+```
+
+Está correcto con el cuadro 6
+
+Se valida demás datos
+
+```{r}
+calcular_pob_tot("sdem_cd_mayor_cien", "desocupada", "clase2 == 2")
+```
+
+Se calcula TP
+
+```{r}
+calcular_tasas_tot("sdem_cd_mayor_cien", "tp", "clase1 == 1", "eda >= 15 & eda <= 98")
+```
+
+Correcto!!!
+
+Para diferenciar de la tasa general, puedo añadir el posfijo `_cd`
+
+```{r}
+calcular_tasas_tot("sdem_cd_mayor_cien", "tp_cd", "clase1 == 1", "eda >= 15 & eda <= 98")
+```
+
+Entonces, necesito dos tablas una que contenga el total de observaciones y otra las 39 ciudades.
+
+1. `sdem`
+2. `sdem_cd`
+
+Se modifica `scripts/1_preparacion_datos_v1-1.R` para añadir dichas cuestiones.
+
+
+
