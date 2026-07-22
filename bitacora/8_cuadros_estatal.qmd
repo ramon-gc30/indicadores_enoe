@@ -1,0 +1,608 @@
+---
+date: "19-07-2026"
+format: gfm
+---
+
+Se continua con la elaboración de cuadros estadísticos. Ahora se intentará realizar a nivel estatal.
+
+```{r}
+#| label: setup
+#| warning: false
+#| message: false
+
+library(tidyverse)
+library(here)
+library(gt)
+
+tasas_tot <- read_rds(here::here("datos", "tasas_tot.rds"))
+tasas_sub <- read_rds(here::here("datos", "tasas_sub.rds"))
+pob_tot <- read_rds(here::here("datos", "pob_tot.rds"))
+pob_sub <- read_rds(here::here("datos", "pob_sub.rds"))
+```
+
+A nivel estatal
+
+```{r}
+ent_pob <- pob_sub |> 
+  filter(grupo == "cve_ent")
+
+ent_pob
+```
+
+Se pivotea a lo ancho solo población ocupada y desocupada
+
+```{r}
+ent_pob <- pob_sub |> 
+  filter(
+    grupo == "cve_ent" & 
+      (poblacion == "ocupada" | poblacion == "desocupada")
+  ) |> 
+  pivot_wider(
+    id_cols = valor,
+    names_from = poblacion,
+    values_from = tot
+  )
+
+ent_pob
+```
+
+Ahora se valida las tasas estatales
+
+```{r}
+ent_tasas <- tasas_sub |> 
+  filter(grupo == "cve_ent") |> 
+  pivot_wider(
+    id_cols = valor,
+    names_from = nombre,
+    values_from = tasa
+  )
+
+ent_tasas
+```
+
+Se unen para crear el cuadro estadístico
+
+```{r}
+ent_tbl <- full_join(ent_pob, ent_tasas, by = "valor")
+
+ent_tbl
+```
+
+Faltaría el resultado agregado
+
+```{r}
+ent_tot_pob <- pob_tot |> 
+  filter(
+    datos == "sdem" & 
+      (poblacion == "ocupada" | poblacion == "desocupada")
+  ) |> 
+  pivot_wider(
+    id_cols = datos,
+    names_from = poblacion,
+    values_from = tot
+  )
+
+ent_tot_pob
+```
+
+
+```{r}
+ent_tot_tasas <- tasas_tot |> 
+  filter(datos == "sdem") |> 
+  pivot_wider(
+    id_cols = datos,
+    names_from = nombre,
+    values_from = tasa
+  )
+
+ent_tot_tasas
+```
+
+Se unen
+
+```{r}
+ent_tot <- full_join(ent_tot_pob, ent_tot_tasas, by = "datos") |>
+  rename("valor" = "datos")
+
+ent_tot
+```
+
+Se añade a la tabla
+
+```{r}
+ent_tbl <- ent_tbl |> 
+  # rows_insert(ent_tot, by = "valor")
+  add_row(ent_tot, .before = 1)
+
+ent_tbl
+```
+
+Ahora se cambian los valores de número a texto
+
+```{r}
+valores <- c(
+  "Estados Unidos Mexicanos" = "sdem",
+  "Aguascalientes" = "01",
+  "Baja California" = "02",
+  "Baja California Sur" = "03",
+  "Campeche" = "04",
+  "Coahuila de Zaragoza" = "05",
+  "Colima" = "06",
+  "Chiapas" = "07",
+  "Chihuahua" = "08",
+  "Ciudad de México" = "09",
+  "Durango" = "10",
+  "Guanajuato" = "11",
+  "Guerrero" = "12",
+  "Hidalgo" = "13",
+  "Jalisco" = "14",
+  "México" = "15",
+  "Michoacán de Ocampo" = "16",
+  "Morelos" = "17",
+  "Nayarit" = "18",
+  "Nuevo León" = "19",
+  "Oaxaca" = "20",
+  "Puebla" = "21",
+  "Querétaro" = "22",
+  "Quintana Roo" = "23",
+  "San Luis Potosí" = "24",
+  "Sinaloa" = "25",
+  "Sonora" = "26",
+  "Tabasco" = "27",
+  "Tamaulipas" = "28",
+  "Tlaxcala" = "29",
+  "Veracruz de Ignacio de la Llave" = "30",
+  "Yucatán" = "31",
+  "Zacatecas" = "32"
+)
+```
+
+```{r}
+ent_tbl <- ent_tbl |> 
+  mutate(valor = fct_recode(valor, !!!valores))
+
+ent_tbl
+```
+
+Ahora se define como tabla gt
+
+```{r}
+ent_tbl_gt <- ent_tbl |> 
+  gt() |> 
+  tab_spanner(
+    columns = ocupada:desocupada,
+    label = "Poblacion",
+    level = 2
+  ) |> 
+  tab_spanner(
+    columns = ocupada:desocupada,
+    label = "(personas)",
+    level = 1
+  ) |> 
+  tab_spanner(
+    columns = tp:tosi2,
+    label = "Tasa de",
+    level = 2
+  ) |> 
+  tab_spanner(
+    columns = tp:tosi2,
+    label = "(porcentaje)",
+    level = 1
+  ) |> 
+  cols_hide(columns = til2:tosi2) |> 
+  cols_label(
+    valor = "Entidad federativa",
+    ocupada = "Ocupada",
+    desocupada = "Desocupada",
+    tp = "Participación ",
+    td = "Desocupación ",
+    topd = "Ocupación parcial y desocupación ",
+    tpg = "Presión general ",
+    tta = "Trabajo asalariado ",
+    tsub = "Subocupación ",
+    tcco = "Condiciones críticas de ocupación ",
+    til1 = "Informalidad laboral 1 ",
+    tosi1 = "Ocupación en el sector informal 1 "
+    # til2 = "Informalidad laboral 2 ",
+    # tosi2 = "Ocupación en el sector informal 2 ",
+  ) |> 
+  fmt_number(
+    columns = ocupada:desocupada,
+    decimals = 0
+  ) |> 
+  fmt_number(
+    columns = -(valor:desocupada),
+    decimals = 1,
+    scale_by = 100
+  ) |> 
+  cols_align(columns = valor, align = "left") |> 
+  cols_align(columns = ocupada:desocupada, align = "right") |> 
+  cols_align(columns = starts_with("t"), align = "center") |> 
+  tab_footnote(
+    locations = cells_column_labels(columns = tp),
+    footnote = "Población económicamente activa (PEA) como porcentaje de la población de 15 años y más."
+  ) |> 
+  tab_footnote(
+    locations = cells_column_labels(columns = td:tpg),
+    footnote = "Valor relativo respecto a la PEA."
+  ) |> 
+  tab_footnote(
+    locations = cells_column_labels(columns = tta:tosi1),
+    footnote = "Valor relativo respecto a la población ocupada."
+  ) |> 
+  tab_footnote(
+    locations = cells_column_labels(columns = tcco),
+    footnote = gt::md("Por construcción, los indicadores de la ENOE, que involucran a la población ocupada u otra variable clasificada en rangos de salarios mínimos, son sensibles a los cambios en dichos salarios. Las cifras de la tasa de condiciones críticas de ocupación (TCCO) se construyen a partir de salarios mínimos nominales. Para efecto de comparar en el tiempo indicadores que toman como referencia salarios mínimos, es necesario considerar la evolución del Índice Nacional de Precios al Consumidor (INPC) y construir salarios mínimos equivalentes, a partir de un año base como referencia. El INEGI pone a disposición de las y los usuarios cifras comparables en el tiempo de la TCCO en la siguiente liga: <https://www.inegi.org.mx/programas/enoe/15ymas/#Tabulados>.")
+  ) |> 
+  tab_source_note(
+    source_note = "Fuente: INEGI. Encuesta Nacional de Ocupación y Empleo (ENOE), 2026."
+  )
+
+ent_tbl_gt
+```
+
+Listo! Ahora repetimos el proceso para el caso de ciudades
+
+Me percaté que no viene la columna que especifica el conjunto de datos, se realiza modificación en `scripts/0_funciones_v2-1.R` solo para el caso agregado. Listo. Se valida. Correcto!
+
+CIUDADES
+
+población
+
+```{r}
+cd_sub_pob <- pob_sub |> 
+  filter(
+    grupo == "cd_a" & 
+      (poblacion == "ocupada" | poblacion == "desocupada")
+  ) |> 
+  pivot_wider(
+    id_cols = valor,
+    names_from = poblacion,
+    values_from = tot
+  )
+
+cd_sub_pob
+```
+
+tasas
+
+```{r}
+cd_sub_tasas <- tasas_sub |>
+  filter(grupo == "cd_a") |>
+  pivot_wider(
+    id_cols = valor,
+    names_from = nombre,
+    values_from = tasa
+  )
+
+cd_sub_tasas
+```
+
+Se unen
+
+```{r}
+cd_tbl <- full_join(cd_sub_pob, cd_sub_tasas, by = "valor")
+
+cd_tbl
+```
+
+Total
+
+```{r}
+cd_tot_pob <- pob_tot |> 
+  filter(
+    datos == "sdem_cd" &
+      (poblacion == "ocupada" | poblacion == "desocupada")
+  ) |>
+  pivot_wider(
+    id_cols = datos,
+    names_from = poblacion,
+    values_from = tot
+  ) |>
+  rename("valor" = "datos")
+
+cd_tot_pob
+```
+
+```{r}
+cd_tot_tasas <- tasas_tot |>
+  filter(datos == "sdem_cd") |>
+  pivot_wider(
+    id_cols = datos,
+    names_from = nombre,
+    values_from = tasa
+  ) |>
+  rename("valor" = "datos")
+
+cd_tot_tasas
+```
+
+```{r}
+cd_tot <- full_join(cd_tot_pob, cd_tot_tasas, by = "valor")
+
+cd_tot
+```
+
+```{r}
+# cd_tbl <- cd_tbl |>
+#   add_row(cd_tot, .before = 1)
+# 
+# cd_tbl
+```
+
+```{r}
+valores <- c(
+  # "Agregado 39 ciudades" = "sdem_cd",
+  "Ciudad de México (CDMX y Méx.)" = "1",
+  "Guadalajara (Jal.)" = "2",
+  "Monterrey (N. L.)" = "3",
+  "Puebla (Pue.)" = "4",
+  "León (Gto.)" = "5",
+  "Torreón - La Laguna (Coah. y Dgo.)" = "6",
+  "San Luis Potosí (S. L. P.)" = "7",
+  "Mérida (Yuc.)" = "8",
+  "Chihuahua (Chih.)" = "9",
+  "Tampico (Tamps. y Ver.)" = "10",
+  "Veracruz (Ver.)" = "12",
+  "Acapulco de Juárez (Gro.)" = "13",
+  "Aguascalientes (Ags.)" = "14",
+  "Morelia (Mich.)" = "15",
+  "Toluca (Méx.)" = "16",
+  "Saltillo (Coah.)" = "17",
+  "Villahermosa (Tab.)" = "18",
+  "Tuxtla Gutiérrez (Chis.)" = "19",
+  "Ciudad Juárez (Chih.)" = "20",
+  "Tijuana (B. C.)" = "21",
+  "Culiacán (Sin.)" = "24",
+  "Hermosillo (Son.)" = "25",
+  "Durango (Dgo.)" = "26",
+  "Tepic (Nay.)" = "27",
+  "Campeche (Camp.)" = "28",
+  "Cuernavaca (Mor.)" = "29",
+  "Coatzacoalcos (Ver.)" = "30",
+  "Oaxaca (Oax.)" = "31",
+  "Zacatecas (Zac.)" = "32",
+  "Colima (Col.)" = "33",
+  "Querétaro (Qro.)" = "36",
+  "Tlaxcala (Tlax.)" = "39",
+  "La Paz (B. C. S.)" = "40",
+  "Cancún (Q. Roo)" = "41",
+  "Ciudad del Carmen (Camp.)" = "42",
+  "Pachuca (Hgo.)" = "43",
+  "Mexicali (B. C.)" = "44",
+  "Reynosa (Tamps.)" = "46",
+  "Tapachula (Chis.)" = "52"
+)
+
+cd_tbl <- cd_tbl |>
+  mutate(valor = fct_recode(valor, !!!valores))
+
+cd_tbl
+```
+
+```{r}
+cd_cve <- tribble(
+  ~valor, ~cve_ent,
+  # ------
+  "Aguascalientes (Ags.)", 1,
+  "Mexicali (B. C.)", 2,
+  "Tijuana (B. C.)", 2,
+  "La Paz (B. C. S.)", 3,
+  "Campeche (Camp.)", 4,
+  "Ciudad del Carmen (Camp.)", 4,
+  "Torreón - La Laguna (Coah. y Dgo.)", 5,
+  "Saltillo (Coah.)", 5,
+  "Colima (Col.)", 6,
+  "Tapachula (Chis.)", 7,
+  "Tuxtla Gutiérrez (Chis.)", 7,
+  "Chihuahua (Chih.)", 8,
+  "Ciudad Juárez (Chih.)", 8,
+  "Ciudad de México (CDMX y Méx.)", 9,
+  "Durango (Dgo.)", 10,
+  "León (Gto.)", 11,
+  "Acapulco de Juárez (Gro.)", 12,
+  "Pachuca (Hgo.)", 13,
+  "Guadalajara (Jal.)", 14,
+  "Toluca (Méx.)", 15,
+  "Morelia (Mich.)", 16,
+  "Cuernavaca (Mor.)", 17,
+  "Tepic (Nay.)", 18,
+  "Monterrey (N. L.)", 19,
+  "Oaxaca (Oax.)", 20,
+  "Puebla (Pue.)", 21,
+  "Querétaro (Qro.)", 22,
+  "Cancún (Q. Roo)", 23,
+  "San Luis Potosí (S. L. P.)", 24,
+  "Culiacán (Sin.)", 25,
+  "Hermosillo (Son.)", 26,
+  "Villahermosa (Tab.)", 27,
+  "Tampico (Tamps. y Ver.)", 28,
+  "Reynosa (Tamps.)", 28,
+  "Tlaxcala (Tlax.)", 29,
+  "Coatzacoalcos (Ver.)", 30,
+  "Veracruz (Ver.)", 30,
+  "Mérida (Yuc.)", 31,
+  "Zacatecas (Zac.)", 32
+)
+```
+
+```{r}
+cd_tbl <- left_join(cd_tbl, cd_cve, by = c("valor")) |>
+  arrange(cve_ent, valor)
+
+cd_tbl
+```
+
+Ahora se añade el resultado agregado
+
+```{r}
+cd_tbl <-  cd_tbl |>
+  add_row(cd_tot, .before = 1) |> 
+  mutate(valor = if_else(valor == "sdem_cd", "Agregado 39 ciudades", valor))
+
+cd_tbl
+```
+
+Listo! Ahora se puede crear la tabla gt
+
+```{r}
+cd_tbl_gt <- cd_tbl |> 
+  gt() |> 
+  tab_spanner(
+    columns = ocupada:desocupada,
+    label = "Poblacion",
+    level = 2
+  ) |> 
+  tab_spanner(
+    columns = ocupada:desocupada,
+    label = "(personas)",
+    level = 1
+  ) |> 
+  tab_spanner(
+    columns = tp:tosi2,
+    label = "Tasa de",
+    level = 2
+  ) |> 
+  tab_spanner(
+    columns = tp:tosi2,
+    label = "(porcentaje)",
+    level = 1
+  ) |> 
+  cols_hide(columns = til2:cve_ent) |> 
+  cols_label(
+    valor = "Área metropolitana de la ciudad de",
+    ocupada = "Ocupada",
+    desocupada = "Desocupada",
+    tp = "Participación ",
+    td = "Desocupación ",
+    topd = "Ocupación parcial y desocupación ",
+    tpg = "Presión general ",
+    tta = "Trabajo asalariado ",
+    tsub = "Subocupación ",
+    tcco = "Condiciones críticas de ocupación ",
+    til1 = "Informalidad laboral 1 ",
+    tosi1 = "Ocupación en el sector informal 1 "
+    # til2 = "Informalidad laboral 2 ",
+    # tosi2 = "Ocupación en el sector informal 2 ",
+  ) |> 
+  fmt_number(
+    columns = ocupada:desocupada,
+    decimals = 0
+  ) |> 
+  fmt_number(
+    columns = -(valor:desocupada),
+    decimals = 1,
+    scale_by = 100
+  ) |> 
+  cols_align(columns = valor, align = "left") |> 
+  cols_align(columns = ocupada:desocupada, align = "right") |> 
+  cols_align(columns = starts_with("t"), align = "center")
+
+cd_tbl_gt
+```
+
+Por último, se intenta añadir las notas al pie de página
+
+```{r}
+cd_tbl_gt <- cd_tbl |> 
+  gt() |> 
+  tab_spanner(
+    columns = ocupada:desocupada,
+    label = "Poblacion",
+    level = 2
+  ) |> 
+  tab_spanner(
+    columns = ocupada:desocupada,
+    label = "(personas)",
+    level = 1
+  ) |> 
+  tab_spanner(
+    columns = tp:tosi2,
+    label = "Tasa de",
+    level = 2
+  ) |> 
+  tab_spanner(
+    columns = tp:tosi2,
+    label = "(porcentaje)",
+    level = 1
+  ) |> 
+  cols_hide(columns = til2:cve_ent) |> 
+  cols_label(
+    valor = "Área metropolitana de la ciudad de:",
+    ocupada = "Ocupada",
+    desocupada = "Desocupada",
+    tp = "Participación",
+    td = "Desocupación ",
+    topd = "Ocupación parcial y desocupación ",
+    tpg = "Presión general ",
+    tta = "Trabajo asalariado ",
+    tsub = "Subocupación ",
+    tcco = "Condiciones críticas de ocupación ",
+    til1 = "Informalidad laboral 1 ",
+    tosi1 = "Ocupación en el sector informal 1 "
+    # til2 = "Informalidad laboral 2 ",
+    # tosi2 = "Ocupación en el sector informal 2 ",
+  ) |> 
+  fmt_number(
+    columns = ocupada:desocupada,
+    decimals = 0
+  ) |> 
+  fmt_number(
+    columns = -(valor:desocupada),
+    decimals = 1,
+    scale_by = 100
+  ) |> 
+  cols_align(columns = valor, align = "left") |> 
+  cols_align(columns = ocupada:desocupada, align = "right") |> 
+  cols_align(columns = starts_with("t"), align = "center") |> 
+  tab_footnote(
+    locations = cells_column_labels(columns = tp),
+    footnote = "Población económicamente activa (PEA) como porcentaje de la población de 15 años y más."
+  ) |> 
+  tab_footnote(
+    locations = cells_column_labels(columns = td:tpg),
+    footnote = "Valor relativo respecto a la PEA."
+  ) |> 
+  tab_footnote(
+    locations = cells_column_labels(columns = tta:tosi1),
+    footnote = "Valor relativo respecto a la población ocupada."
+  ) |> 
+  tab_footnote(
+    locations = cells_column_labels(columns = tcco),
+    footnote = gt::md("Por construcción, los indicadores de la ENOE, que involucran a la población ocupada u otra variable clasificada en rangos de salarios mínimos, son sensibles a los cambios en dichos salarios. Las cifras de la tasa de condiciones críticas de ocupación (TCCO) se construyen a partir de salarios mínimos nominales. Para efecto de comparar en el tiempo indicadores que toman como referencia salarios mínimos, es necesario considerar la evolución del Índice Nacional de Precios al Consumidor (INPC) y construir salarios mínimos equivalentes, a partir de un año base como referencia. El INEGI pone a disposición de las y los usuarios cifras comparables en el tiempo de la TCCO en la siguiente liga: <https://www.inegi.org.mx/programas/enoe/15ymas/#Tabulados>.")
+  ) |> 
+  tab_source_note(
+    source_note = "Fuente: INEGI. Encuesta Nacional de Ocupación y Empleo (ENOE), 2026."
+  )
+
+cd_tbl_gt
+```
+
+Listo!
+
+Las tablas resultantes son
+
+```{r}
+ent_tbl_gt
+cd_tbl_gt
+```
+
+Listo! Se guarda
+
+```{r}
+gt::gtsave(
+  data = ent_tbl_gt,
+  filename = "pob_y_tasas_ent.docx",
+  path = here::here("cuadros")
+)
+
+gt::gtsave(
+  data = cd_tbl_gt,
+  filename = "pob_y_tasas_cd.docx",
+  path = here::here("cuadros")
+)
+```
+
+Se valida
+
+Está correcto. Solo es cuestión de añadir estilo, pero son temas muchísimos menores. Ahora se añade el script correspondiente
