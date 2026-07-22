@@ -1,0 +1,1849 @@
+---
+date: "20-07-2026"
+format: gfm
+---
+
+En este documento se intentará mejorar el script `scripts/2_cuadros_v1-1.R`.
+
+```{r}
+#| label: setup
+#| message: false
+#| warning: false
+
+library(tidyverse)
+library(here)
+library(gt)
+library(rlang)
+
+tasas_tot <- read_rds(here::here("datos", "tasas_tot.rds"))
+tasas_sub <- read_rds(here::here("datos", "tasas_sub.rds"))
+pob_tot <- read_rds(here::here("datos", "pob_tot.rds"))
+pob_sub <- read_rds(here::here("datos", "pob_sub.rds"))
+```
+
+De dicho script, considero que solamente se repiten dos procedimientos:
+
+1. Pivotar datos 
+2. Generar tabla gt
+
+Por tanto, se decide pasarlo a funciones. En el caso de pivoteo, el procedimiento actual es el siguiente
+
+```{{r}}
+# desagregado
+ent_sub_pob <- pob_sub |> 
+  filter(
+    grupo == "cve_ent" & 
+      (poblacion == "ocupada" | poblacion == "desocupada")
+  ) |> 
+  pivot_wider(
+    id_cols = valor,
+    names_from = poblacion,
+    values_from = tot
+  )
+```
+
+Lo que cambia es el filtro y los datos para pivotear: identificador, nombre y valor. Así pues, se crea una función con dichos valores
+
+```{r}
+pivotar_datos <- function(datos, filtro, id, nombre, valor){
+  datos |>
+    filter(  !!parse_expr(filtro)  ) |> 
+    pivot_wider(
+      id_cols = {{  id  }},
+      names_from = {{  nombre  }},
+      values_from = {{  valor  }}
+    )
+}
+```
+
+Se valida con el mismo ejemplo mostrado líneas arriba
+
+```{r}
+pob_sub <- read_rds(here::here("datos", "pob_sub.rds"))
+pob_sub
+```
+
+En este caso como tenemos comillas dobles, se escapan con barra invertida `\` o bien especificarla dentro de `r"(cadena)"`. Para ver el contenido sin procesar de la cadena se utilza `str_view`, véase 14.2 R for data science (2a ed) <https://r4ds.hadley.nz/strings.html> 
+
+```{r}
+r"{grupo == "cve_ent" & (poblacion == "ocupada" | poblacion == "desocupada")}"
+```
+
+Se valida
+
+```{r}
+pivotar_datos(
+  datos = pob_sub,
+  filtro = r"{grupo == "cve_ent" & (poblacion == "ocupada" | poblacion == "desocupada")}",
+  id = valor,
+  nombre = poblacion,
+  valor = tot
+)
+```
+
+Listo! No me gusta tanto ya que lleva las mismas líneas de código, eso sí evita duplicidad pero poco
+
+Para el caso de las tablas gt el procedimiento actual es
+
+```{{r}}
+ent_tbl |> 
+  gt() |> 
+  tab_spanner(
+    columns = ocupada:desocupada,
+    label = "Poblacion",
+    level = 2
+  ) |> 
+  tab_spanner(
+    columns = ocupada:desocupada,
+    label = "(personas)",
+    level = 1
+  ) |> 
+  tab_spanner(
+    columns = tp:tosi2,
+    label = "Tasa de",
+    level = 2
+  ) |> 
+  tab_spanner(
+    columns = tp:tosi2,
+    label = "(porcentaje)",
+    level = 1
+  ) |> 
+  cols_hide(columns = til2:tosi2) |> 
+  cols_label(
+    valor = "Entidad federativa",
+    ocupada = "Ocupada",
+    desocupada = "Desocupada",
+    tp = "Participación ",
+    td = "Desocupación ",
+    topd = "Ocupación parcial y desocupación ",
+    tpg = "Presión general ",
+    tta = "Trabajo asalariado ",
+    tsub = "Subocupación ",
+    tcco = "Condiciones críticas de ocupación ",
+    til1 = "Informalidad laboral 1 ",
+    tosi1 = "Ocupación en el sector informal 1 "
+    # til2 = "Informalidad laboral 2 ",
+    # tosi2 = "Ocupación en el sector informal 2 ",
+  ) |> 
+  fmt_number(
+    columns = ocupada:desocupada,
+    decimals = 0
+  ) |> 
+  fmt_number(
+    columns = -(valor:desocupada),
+    decimals = 1,
+    scale_by = 100
+  ) |> 
+  cols_align(columns = valor, align = "left") |> 
+  cols_align(columns = ocupada:desocupada, align = "right") |> 
+  cols_align(columns = starts_with("t"), align = "center") |> 
+  tab_footnote(
+    locations = cells_column_labels(columns = tp),
+    footnote = "Población económicamente activa (PEA) como porcentaje de la población de 15 años y más."
+  ) |> 
+  tab_footnote(
+    locations = cells_column_labels(columns = td:tpg),
+    footnote = "Valor relativo respecto a la PEA."
+  ) |> 
+  tab_footnote(
+    locations = cells_column_labels(columns = tta:tosi1),
+    footnote = "Valor relativo respecto a la población ocupada."
+  ) |> 
+  tab_footnote(
+    locations = cells_column_labels(columns = tcco),
+    footnote = gt::md("Por construcción, los indicadores de la ENOE, que involucran a la población ocupada u otra variable clasificada en rangos de salarios mínimos, son sensibles a los cambios en dichos salarios. Las cifras de la tasa de condiciones críticas de ocupación (TCCO) se construyen a partir de salarios mínimos nominales. Para efecto de comparar en el tiempo indicadores que toman como referencia salarios mínimos, es necesario considerar la evolución del Índice Nacional de Precios al Consumidor (INPC) y construir salarios mínimos equivalentes, a partir de un año base como referencia. El INEGI pone a disposición de las y los usuarios cifras comparables en el tiempo de la TCCO en la siguiente liga: <https://www.inegi.org.mx/programas/enoe/15ymas/#Tabulados>.")
+  ) |> 
+  tab_source_note(
+    source_note = "Fuente: INEGI. Encuesta Nacional de Ocupación y Empleo (ENOE), 2026."
+  )
+```
+
+Lo único que cambia es la etiqueta del encabezado de `valor`, así pues se establece dicho argumento
+
+```{r}
+generar_cuadros_sub <- function(datos, etiqueta_encabezado){
+  datos |> 
+    gt() |> 
+    tab_spanner(
+      columns = ocupada:desocupada,
+      label = "Poblacion",
+      level = 2
+    ) |> 
+    tab_spanner(
+      columns = ocupada:desocupada,
+      label = "(personas)",
+      level = 1
+    ) |> 
+    tab_spanner(
+      columns = tp:tosi2,
+      label = "Tasa de",
+      level = 2
+    ) |> 
+    tab_spanner(
+      columns = tp:tosi2,
+      label = "(porcentaje)",
+      level = 1
+    ) |> 
+    cols_hide(columns = til2:tosi2) |> 
+    cols_label(
+      valor = etiqueta_encabezado,
+      ocupada = "Ocupada",
+      desocupada = "Desocupada",
+      tp = "Participación ",
+      td = "Desocupación ",
+      topd = "Ocupación parcial y desocupación ",
+      tpg = "Presión general ",
+      tta = "Trabajo asalariado ",
+      tsub = "Subocupación ",
+      tcco = "Condiciones críticas de ocupación ",
+      til1 = "Informalidad laboral 1 ",
+      tosi1 = "Ocupación en el sector informal 1 "
+      # til2 = "Informalidad laboral 2 ",
+      # tosi2 = "Ocupación en el sector informal 2 ",
+    ) |> 
+    fmt_number(
+      columns = ocupada:desocupada,
+      decimals = 0
+    ) |> 
+    fmt_number(
+      columns = -(valor:desocupada),
+      decimals = 1,
+      scale_by = 100
+    ) |> 
+    cols_align(columns = valor, align = "left") |> 
+    cols_align(columns = ocupada:desocupada, align = "right") |> 
+    cols_align(columns = starts_with("t"), align = "center") |> 
+    tab_footnote(
+      locations = cells_column_labels(columns = tp),
+      footnote = "Población económicamente activa (PEA) como porcentaje de la población de 15 años y más."
+    ) |> 
+    tab_footnote(
+      locations = cells_column_labels(columns = td:tpg),
+      footnote = "Valor relativo respecto a la PEA."
+    ) |> 
+    tab_footnote(
+      locations = cells_column_labels(columns = tta:tosi1),
+      footnote = "Valor relativo respecto a la población ocupada."
+    ) |> 
+    tab_footnote(
+      locations = cells_column_labels(columns = tcco),
+      footnote = gt::md("Por construcción, los indicadores de la ENOE, que involucran a la población ocupada u otra variable clasificada en rangos de salarios mínimos, son sensibles a los cambios en dichos salarios. Las cifras de la tasa de condiciones críticas de ocupación (TCCO) se construyen a partir de salarios mínimos nominales. Para efecto de comparar en el tiempo indicadores que toman como referencia salarios mínimos, es necesario considerar la evolución del Índice Nacional de Precios al Consumidor (INPC) y construir salarios mínimos equivalentes, a partir de un año base como referencia. El INEGI pone a disposición de las y los usuarios cifras comparables en el tiempo de la TCCO en la siguiente liga: <https://www.inegi.org.mx/programas/enoe/15ymas/#Tabulados>.")
+    ) |> 
+    tab_source_note(
+      source_note = "Fuente: INEGI. Encuesta Nacional de Ocupación y Empleo (ENOE), 2026."
+    )
+}
+```
+
+Se valida
+
+```{r}
+# datos procesados
+# tasas_tot <- read_rds(here::here("datos", "tasas_tot.rds"))
+# tasas_sub <- read_rds(here::here("datos", "tasas_sub.rds"))
+# pob_tot <- read_rds(here::here("datos", "pob_tot.rds"))
+# pob_sub <- read_rds(here::here("datos", "pob_sub.rds"))
+
+# valores
+estados <- c(
+  "Estados Unidos Mexicanos" = "sdem",
+  "Aguascalientes" = "01",
+  "Baja California" = "02",
+  "Baja California Sur" = "03",
+  "Campeche" = "04",
+  "Coahuila de Zaragoza" = "05",
+  "Colima" = "06",
+  "Chiapas" = "07",
+  "Chihuahua" = "08",
+  "Ciudad de México" = "09",
+  "Durango" = "10",
+  "Guanajuato" = "11",
+  "Guerrero" = "12",
+  "Hidalgo" = "13",
+  "Jalisco" = "14",
+  "México" = "15",
+  "Michoacán de Ocampo" = "16",
+  "Morelos" = "17",
+  "Nayarit" = "18",
+  "Nuevo León" = "19",
+  "Oaxaca" = "20",
+  "Puebla" = "21",
+  "Querétaro" = "22",
+  "Quintana Roo" = "23",
+  "San Luis Potosí" = "24",
+  "Sinaloa" = "25",
+  "Sonora" = "26",
+  "Tabasco" = "27",
+  "Tamaulipas" = "28",
+  "Tlaxcala" = "29",
+  "Veracruz de Ignacio de la Llave" = "30",
+  "Yucatán" = "31",
+  "Zacatecas" = "32"
+)
+
+# desagregado
+ent_sub_pob <- pob_sub |> 
+  filter(
+    grupo == "cve_ent" & 
+      (poblacion == "ocupada" | poblacion == "desocupada")
+  ) |> 
+  pivot_wider(
+    id_cols = valor,
+    names_from = poblacion,
+    values_from = tot
+  )
+
+ent_sub_tasas <- tasas_sub |> 
+  filter(grupo == "cve_ent") |> 
+  pivot_wider(
+    id_cols = valor,
+    names_from = nombre,
+    values_from = tasa
+  )
+
+# agregado
+ent_tot_pob <- pob_tot |> 
+  filter(
+    datos == "sdem" & 
+      (poblacion == "ocupada" | poblacion == "desocupada")
+  ) |> 
+  pivot_wider(
+    id_cols = datos,
+    names_from = poblacion,
+    values_from = tot
+  )
+
+ent_tot_tasas <- tasas_tot |> 
+  filter(datos == "sdem") |> 
+  pivot_wider(
+    id_cols = datos,
+    names_from = nombre,
+    values_from = tasa
+  )
+
+ent_tot <- full_join(ent_tot_pob, ent_tot_tasas, by = "datos") |>
+  rename("valor" = "datos")
+
+# unión
+ent_tbl <- full_join(ent_sub_pob, ent_sub_tasas, by = "valor") |> 
+  add_row(ent_tot, .before = 1) |> 
+  mutate(valor = fct_recode(valor, !!!estados))
+```
+
+```{r}
+generar_cuadros_sub(ent_tbl, "Entidad federativa")
+```
+
+Sí se generó correctamente
+
+Se añaden títulos y estilo de fuente 
+
+```{r}
+generar_cuadros_tasas_sub <- function(tabla, titulo, subtitulo, encabezado){
+  tabla |> 
+    gt() |> 
+    # título
+    tab_header(
+      title = md(titulo),
+      subtitle = md(subtitulo)
+    ) |>
+    # encabezado
+    tab_spanner(
+      columns = ocupada:desocupada,
+      label = "Poblacion",
+      level = 2
+    ) |> 
+    tab_spanner(
+      columns = ocupada:desocupada,
+      label = "(personas)",
+      level = 1
+    ) |> 
+    tab_spanner(
+      columns = tp:tosi2,
+      label = "Tasa de",
+      level = 2
+    ) |> 
+    tab_spanner(
+      columns = tp:tosi2,
+      label = "(porcentaje)",
+      level = 1
+    ) |> 
+    cols_hide(columns = til2:tosi2) |> 
+    # etiqueta en primera fila 
+    cols_label(
+      valor = md(encabezado),
+      ocupada = "Ocupada",
+      desocupada = "Desocupada",
+      tp = "Participación",
+      td = "Desocupación ",
+      topd = "Ocupación parcial y desocupación ",
+      tpg = "Presión general ",
+      tta = "Trabajo asalariado ",
+      tsub = "Subocupación ",
+      tcco = "Condiciones críticas de ocupación ",
+      til1 = "Informalidad laboral 1 ",
+      tosi1 = "Ocupación en el sector informal 1 "
+      # til2 = "Informalidad laboral 2 ",
+      # tosi2 = "Ocupación en el sector informal 2 ",
+    ) |> 
+    # formato de valores de celdas
+    fmt_number(
+      columns = ocupada:desocupada,
+      decimals = 0
+    ) |> 
+    fmt_number(
+      columns = -(valor:desocupada),
+      decimals = 1,
+      scale_by = 100
+    ) |> 
+    # formato de estilo
+    cols_align(columns = valor, align = "left") |> 
+    cols_align(columns = ocupada:desocupada, align = "right") |> 
+    cols_align(columns = starts_with("t"), align = "center") |> 
+    # text_transform(
+    #   fn = function(x) {paste0("<strong>", x, "</strong>")},
+    #   locations = cells_body(rows = 1)
+    # ) |>
+    # notas al pie de tabla
+    tab_footnote(
+      locations = cells_column_labels(columns = tp),
+      footnote = "Población económicamente activa (PEA) como porcentaje de la población de 15 años y más."
+    ) |> 
+    tab_footnote(
+      locations = cells_column_labels(columns = td:tpg),
+      footnote = "Valor relativo respecto a la PEA."
+    ) |> 
+    tab_footnote(
+      locations = cells_column_labels(columns = tta:tosi1),
+      footnote = "Valor relativo respecto a la población ocupada."
+    ) |> 
+    tab_footnote(
+      locations = cells_column_labels(columns = tcco),
+      footnote = gt::md("Por construcción, los indicadores de la ENOE, que involucran a la población ocupada u otra variable clasificada en rangos de salarios mínimos, son sensibles a los cambios en dichos salarios. Las cifras de la tasa de condiciones críticas de ocupación (TCCO) se construyen a partir de salarios mínimos nominales. Para efecto de comparar en el tiempo indicadores que toman como referencia salarios mínimos, es necesario considerar la evolución del Índice Nacional de Precios al Consumidor (INPC) y construir salarios mínimos equivalentes, a partir de un año base como referencia. El INEGI pone a disposición de las y los usuarios cifras comparables en el tiempo de la TCCO en la siguiente liga: <https://www.inegi.org.mx/programas/enoe/15ymas/#Tabulados>.")
+    ) |> 
+    tab_source_note(
+      source_note = "Fuente: INEGI. Encuesta Nacional de Ocupación y Empleo (ENOE), 2026."
+    ) |>
+    # estilo de fuente
+    tab_options(
+      heading.title.font.weight = "bold",
+      column_labels.font.weight = "bold"
+    )
+}
+```
+
+Se valida
+
+```{r}
+generar_cuadros_tasas_sub(
+  tabla = ent_tbl,
+  titulo = "**Población y tasas complementarias de ocupación y desocupación, <br> según entidad federativa**",
+  subtitulo = "primer trimestre de 2026 <br> (personas y porcentaje)",
+  encabezado = "Entidad federativa"
+)
+```
+
+Se valida el caso de áreas metropolitanas
+
+```{r}
+ciudades <- c(
+  # "Agregado 39 ciudades" = "sdem_cd",
+  "Ciudad de México (CDMX y Méx.)" = "1",
+  "Guadalajara (Jal.)" = "2",
+  "Monterrey (N. L.)" = "3",
+  "Puebla (Pue.)" = "4",
+  "León (Gto.)" = "5",
+  "Torreón - La Laguna (Coah. y Dgo.)" = "6",
+  "San Luis Potosí (S. L. P.)" = "7",
+  "Mérida (Yuc.)" = "8",
+  "Chihuahua (Chih.)" = "9",
+  "Tampico (Tamps. y Ver.)" = "10",
+  "Veracruz (Ver.)" = "12",
+  "Acapulco de Juárez (Gro.)" = "13",
+  "Aguascalientes (Ags.)" = "14",
+  "Morelia (Mich.)" = "15",
+  "Toluca (Méx.)" = "16",
+  "Saltillo (Coah.)" = "17",
+  "Villahermosa (Tab.)" = "18",
+  "Tuxtla Gutiérrez (Chis.)" = "19",
+  "Ciudad Juárez (Chih.)" = "20",
+  "Tijuana (B. C.)" = "21",
+  "Culiacán (Sin.)" = "24",
+  "Hermosillo (Son.)" = "25",
+  "Durango (Dgo.)" = "26",
+  "Tepic (Nay.)" = "27",
+  "Campeche (Camp.)" = "28",
+  "Cuernavaca (Mor.)" = "29",
+  "Coatzacoalcos (Ver.)" = "30",
+  "Oaxaca (Oax.)" = "31",
+  "Zacatecas (Zac.)" = "32",
+  "Colima (Col.)" = "33",
+  "Querétaro (Qro.)" = "36",
+  "Tlaxcala (Tlax.)" = "39",
+  "La Paz (B. C. S.)" = "40",
+  "Cancún (Q. Roo)" = "41",
+  "Ciudad del Carmen (Camp.)" = "42",
+  "Pachuca (Hgo.)" = "43",
+  "Mexicali (B. C.)" = "44",
+  "Reynosa (Tamps.)" = "46",
+  "Tapachula (Chis.)" = "52"
+)
+
+cd_cve <- tribble(
+  ~valor, ~cve_ent,
+  # ---
+  "Aguascalientes (Ags.)", 1,
+  "Mexicali (B. C.)", 2,
+  "Tijuana (B. C.)", 2,
+  "La Paz (B. C. S.)", 3,
+  "Campeche (Camp.)", 4,
+  "Ciudad del Carmen (Camp.)", 4,
+  "Torreón - La Laguna (Coah. y Dgo.)", 5,
+  "Saltillo (Coah.)", 5,
+  "Colima (Col.)", 6,
+  "Tapachula (Chis.)", 7,
+  "Tuxtla Gutiérrez (Chis.)", 7,
+  "Chihuahua (Chih.)", 8,
+  "Ciudad Juárez (Chih.)", 8,
+  "Ciudad de México (CDMX y Méx.)", 9,
+  "Durango (Dgo.)", 10,
+  "León (Gto.)", 11,
+  "Acapulco de Juárez (Gro.)", 12,
+  "Pachuca (Hgo.)", 13,
+  "Guadalajara (Jal.)", 14,
+  "Toluca (Méx.)", 15,
+  "Morelia (Mich.)", 16,
+  "Cuernavaca (Mor.)", 17,
+  "Tepic (Nay.)", 18,
+  "Monterrey (N. L.)", 19,
+  "Oaxaca (Oax.)", 20,
+  "Puebla (Pue.)", 21,
+  "Querétaro (Qro.)", 22,
+  "Cancún (Q. Roo)", 23,
+  "San Luis Potosí (S. L. P.)", 24,
+  "Culiacán (Sin.)", 25,
+  "Hermosillo (Son.)", 26,
+  "Villahermosa (Tab.)", 27,
+  "Tampico (Tamps. y Ver.)", 28,
+  "Reynosa (Tamps.)", 28,
+  "Tlaxcala (Tlax.)", 29,
+  "Coatzacoalcos (Ver.)", 30,
+  "Veracruz (Ver.)", 30,
+  "Mérida (Yuc.)", 31,
+  "Zacatecas (Zac.)", 32
+)
+
+# desagregado
+cd_sub_pob <- pob_sub |> 
+  filter(
+    grupo == "cd_a" & 
+      (poblacion == "ocupada" | poblacion == "desocupada")
+  ) |> 
+  pivot_wider(
+    id_cols = valor,
+    names_from = poblacion,
+    values_from = tot
+  )
+
+cd_sub_tasas <- tasas_sub |>
+  filter(grupo == "cd_a") |>
+  pivot_wider(
+    id_cols = valor,
+    names_from = nombre,
+    values_from = tasa
+  )
+
+# agregado
+cd_tot_pob <- pob_tot |> 
+  filter(
+    datos == "sdem_cd" &
+      (poblacion == "ocupada" | poblacion == "desocupada")
+  ) |>
+  pivot_wider(
+    id_cols = datos,
+    names_from = poblacion,
+    values_from = tot
+  )
+
+cd_tot_tasas <- tasas_tot |>
+  filter(datos == "sdem_cd") |>
+  pivot_wider(
+    id_cols = datos,
+    names_from = nombre,
+    values_from = tasa
+  )
+
+cd_tot <- full_join(cd_tot_pob, cd_tot_tasas, by = "datos") |> 
+  rename("valor" = "datos")
+
+# unión
+cd_tbl <- full_join(cd_sub_pob, cd_sub_tasas, by = "valor") |> 
+  mutate(valor = fct_recode(valor, !!!ciudades)) |> 
+  left_join(cd_cve, by = c("valor")) |>
+  arrange(cve_ent, valor) |> 
+  add_row(cd_tot, .before = 1) |> 
+  mutate(valor = if_else(valor == "sdem_cd", "Agregado 39 ciudades", valor)) |> 
+  select(-cve_ent)
+```
+
+Se genera tabla final
+
+```{r}
+generar_cuadros_tasas_sub(
+  tabla = cd_tbl,
+  titulo = "**Población y tasas complementarias de ocupación y desocupación, <br> según área metropolitana**",
+  subtitulo = "primer trimestre de 2026 <br> (personas y porcentaje)",
+  encabezado = "Área metropolitana de la ciudad de:"
+)
+```
+
+Listo!
+
+Por último, validemos poner en negritas la primera fila
+
+```{r}
+tasas_ent_gt <- generar_cuadros_tasas_sub(
+  tabla = ent_tbl,
+  titulo = "**Población y tasas complementarias de ocupación y desocupación, <br> según entidad federativa**",
+  subtitulo = "primer trimestre de 2026 <br> (personas y porcentaje)",
+  encabezado = "Entidad federativa"
+)
+
+tasas_ent_gt
+```
+
+Se hace con `tab_style`
+
+```{r}
+tasas_ent_gt |> 
+  tab_style(
+    locations = cells_body(rows = 1),
+    style = cell_text(weight = "bold")
+  ) |> 
+  tab_style(
+    locations = cells_column_labels(),
+    style = cell_text(v_align = "middle")
+  )
+```
+
+Listo! Por tanto, la función queda como sigue
+
+```{r}
+
+generar_cuadros_tasas_sub <- function(tabla, titulo, subtitulo, encabezado){
+  tabla |> 
+    gt() |> 
+    # título
+    tab_header(
+      title = md(titulo),
+      subtitle = md(subtitulo)
+    ) |>
+    # encabezado
+    tab_spanner(
+      columns = ocupada:desocupada,
+      label = "Poblacion",
+      level = 2
+    ) |> 
+    tab_spanner(
+      columns = ocupada:desocupada,
+      label = "(personas)",
+      level = 1
+    ) |> 
+    tab_spanner(
+      columns = tp:tosi2,
+      label = "Tasa de",
+      level = 2
+    ) |> 
+    tab_spanner(
+      columns = tp:tosi2,
+      label = "(porcentaje)",
+      level = 1
+    ) |> 
+    cols_hide(columns = til2:tosi2) |> 
+    # etiqueta de encabezados de columnas 
+    cols_label(
+      valor = md(encabezado),
+      ocupada = "Ocupada",
+      desocupada = "Desocupada",
+      tp = "Participación",
+      td = "Desocupación ",
+      topd = "Ocupación parcial y desocupación ",
+      tpg = "Presión general ",
+      tta = "Trabajo asalariado ",
+      tsub = "Subocupación ",
+      tcco = "Condiciones críticas de ocupación ",
+      til1 = "Informalidad laboral 1 ",
+      tosi1 = "Ocupación en el sector informal 1 "
+      # til2 = "Informalidad laboral 2 ",
+      # tosi2 = "Ocupación en el sector informal 2 ",
+    ) |> 
+    # formato de valores de celdas
+    fmt_number(
+      columns = ocupada:desocupada,
+      decimals = 0
+    ) |> 
+    fmt_number(
+      columns = -(valor:desocupada),
+      decimals = 1,
+      scale_by = 100
+    ) |> 
+    # formato de estilo
+    cols_align(columns = valor, align = "left") |>  # primera columna
+    cols_align(columns = ocupada:desocupada, align = "right") |> # población
+    cols_align(columns = starts_with("t"), align = "center") |> # tasas
+    # alineación vertical al centro
+    tab_style(
+    locations = cells_column_labels(),
+    style = cell_text(v_align = "middle")
+    ) |> 
+    # la primera fila en negrita 
+    tab_style(
+    locations = cells_body(rows = 1),
+    style = cell_text(weight = "bold")
+    ) |> 
+    # notas al pie de tabla
+    tab_footnote(
+      locations = cells_column_labels(columns = tp),
+      footnote = "Población económicamente activa (PEA) como porcentaje de la población de 15 años y más."
+    ) |> 
+    tab_footnote(
+      locations = cells_column_labels(columns = td:tpg),
+      footnote = "Valor relativo respecto a la PEA."
+    ) |> 
+    tab_footnote(
+      locations = cells_column_labels(columns = tta:tosi1),
+      footnote = "Valor relativo respecto a la población ocupada."
+    ) |> 
+    tab_footnote(
+      locations = cells_column_labels(columns = tcco),
+      footnote = gt::md("Por construcción, los indicadores de la ENOE, que involucran a la población ocupada u otra variable clasificada en rangos de salarios mínimos, son sensibles a los cambios en dichos salarios. Las cifras de la tasa de condiciones críticas de ocupación (TCCO) se construyen a partir de salarios mínimos nominales. Para efecto de comparar en el tiempo indicadores que toman como referencia salarios mínimos, es necesario considerar la evolución del Índice Nacional de Precios al Consumidor (INPC) y construir salarios mínimos equivalentes, a partir de un año base como referencia. El INEGI pone a disposición de las y los usuarios cifras comparables en el tiempo de la TCCO en la siguiente liga: <https://www.inegi.org.mx/programas/enoe/15ymas/#Tabulados>.")
+    ) |> 
+    tab_source_note(
+      source_note = "Fuente: INEGI. Encuesta Nacional de Ocupación y Empleo (ENOE), 2026."
+    ) |>
+    # estilo de fuente
+    tab_options(
+      heading.title.font.weight = "bold",
+      column_labels.font.weight = "bold"
+    )
+}
+```
+
+Se vuelve a validar
+
+```{r}
+generar_cuadros_tasas_sub(
+  tabla = ent_tbl,
+  titulo = "**Población y tasas complementarias de ocupación y desocupación, <br> según entidad federativa**",
+  subtitulo = "primer trimestre de 2026 <br> (personas y porcentaje)",
+  encabezado = "Entidad federativa"
+)
+```
+
+Listo! Por tanto, la función `generar_cuadros_tasas_sub` aceptan los siguientes valores:
+
+* `tabla` conjunto de datos de dónde se generará el cuadro, estos ya deben estar previamente adaptados al estilo que muestra el INEGI
+* `titulo` donde acepta los siguientes valores: 
+  1. `"**Población y tasas complementarias de ocupación y desocupación, <br> según entidad federativa**"`
+  2. `"**Población y tasas complementarias de ocupación y desocupación, <br> según área metropolitana**"`
+
+* `subtitulo` periodo al que pertenecen los datos generados, por ejemplo `primer trimestre de 2026`
+
+* `encabezado` que acepta los siguientes valores:
+  1. `Entidad federativa`
+  2. `Área metropolitana de la ciudad de:`
+  
+Aquello podría hacerlo así
+
+```{r}
+valores_titulo <- c("entidad federativa", "área metropolitana")
+
+fn_vgr <- function(titulo = valores_titulo){
+  titulo <- match.arg(titulo)
+  
+  cadena <- paste(
+    "**Población y tasas complementarias de ocupación y desocupación, <br> según",
+    titulo,
+    "**"
+  )
+  
+  gt::md(cadena)
+}
+```
+
+Se valida
+
+```{r}
+fn_vgr(titulo = "en")
+```
+
+Para definir valores específicos basta con definir el argumento de interés con dichos valores: `argumento = valores` siendo `valores`, en este caso, un vector de cadena de caracteres. 
+
+La función `match.arg` compara el valor ingresado con respecto a los definidos previamente en el argumento y devuelve el valor que coincida o error si no existe coincidencia. Por ejemplo,
+
+```{r}
+fn_vgr(titulo = "ár")
+```
+
+Pero si se le quita dicha función
+
+```{r}
+fn_vgr <- function(titulo = valores_titulo){
+  # titulo <- match.arg(titulo)
+  
+  cadena <- paste(
+    "**Población y tasas complementarias de ocupación y desocupación, <br> según",
+    titulo,
+    "**"
+  )
+  
+  gt::md(cadena)
+}
+```
+
+Queda así
+
+```{r}
+fn_vgr(titulo = "ár")
+```
+
+Por tanto, se sugiere utilizar dicha función. Ahora bien, incluyendo los demás valores 
+
+```{r}
+valores_titulo <- c("entidad federativa", "área metropolitana")
+valores_encabezado <- c("Entidad federativa", "Área metropolitana de la ciudad de:")
+
+fn_vgr <- function(
+    titulo = valores_titulo, 
+    subtitulo, 
+    encabezado = valores_encabezado
+  ){
+  titulo <- match.arg(titulo)
+  encabezado <- match.arg(encabezado)
+  
+  titulo <- paste(
+    "**Población y tasas complementarias de ocupación y desocupación, <br> según",
+    titulo,
+    "**"
+  )
+  
+  subtitulo <- paste(
+    subtitulo,
+    "<br>(personas y porcentaje)"
+  )
+  
+  gt::md(titulo)
+  gt::md(subtitulo)
+  gt::md(encabezado)
+}
+```
+
+Se valida
+
+```{r}
+fn_vgr(titulo = "ent", subtitulo = "primer trimestre de 2026", encabezado = "Ent")
+```
+
+Al parecer sí funciona, se intenta añadir a la función principal
+
+```{r}
+arg_titulo <- c("entidad federativa", "área metropolitana")
+arg_encabezado <- c("Entidad federativa", "Área metropolitana de la ciudad de:")
+
+generar_cuadros_tasas_sub <- 
+  function(
+    tabla, 
+    titulo = arg_titulo, 
+    subtitulo, 
+    encabezado = arg_encabezado
+  )
+{
+  titulo <- match.arg(titulo)
+  encabezado <- match.arg(encabezado)
+  
+  titulo <- paste(
+    "**Población y tasas complementarias de ocupación y desocupación, <br>según ",
+    titulo,
+    "**",
+    sep = ""
+  )
+  
+  subtitulo <- paste(
+    subtitulo,
+    "<br>(personas y porcentaje)"
+  )
+    
+  tabla |> 
+    gt() |> 
+    # título
+    tab_header(
+      title = md(titulo),
+      subtitle = md(subtitulo)
+    ) |>
+    # encabezado
+    tab_spanner(
+      columns = ocupada:desocupada,
+      label = "Poblacion",
+      level = 2
+    ) |> 
+    tab_spanner(
+      columns = ocupada:desocupada,
+      label = "(personas)",
+      level = 1
+    ) |> 
+    tab_spanner(
+      columns = tp:tosi2,
+      label = "Tasa de",
+      level = 2
+    ) |> 
+    tab_spanner(
+      columns = tp:tosi2,
+      label = "(porcentaje)",
+      level = 1
+    ) |> 
+    cols_hide(columns = til2:tosi2) |> 
+    # etiqueta de encabezados de columnas 
+    cols_label(
+      valor = md(encabezado),
+      ocupada = "Ocupada",
+      desocupada = "Desocupada",
+      tp = "Participación",
+      td = "Desocupación ",
+      topd = "Ocupación parcial y desocupación ",
+      tpg = "Presión general ",
+      tta = "Trabajo asalariado ",
+      tsub = "Subocupación ",
+      tcco = "Condiciones críticas de ocupación ",
+      til1 = "Informalidad laboral 1 ",
+      tosi1 = "Ocupación en el sector informal 1 "
+      # til2 = "Informalidad laboral 2 ",
+      # tosi2 = "Ocupación en el sector informal 2 ",
+    ) |> 
+    # formato de valores de celdas
+    fmt_number(
+      columns = ocupada:desocupada,
+      decimals = 0
+    ) |> 
+    fmt_number(
+      columns = -(valor:desocupada),
+      decimals = 1,
+      scale_by = 100
+    ) |> 
+    # formato de estilo
+    cols_align(columns = valor, align = "left") |>  # primera columna
+    cols_align(columns = ocupada:desocupada, align = "right") |> # población
+    cols_align(columns = starts_with("t"), align = "center") |> # tasas
+    # alineación vertical al centro
+    tab_style(
+    locations = cells_column_labels(),
+    style = cell_text(v_align = "middle")
+    ) |> 
+    # la primera fila en negrita 
+    tab_style(
+    locations = cells_body(rows = 1),
+    style = cell_text(weight = "bold")
+    ) |> 
+    # notas al pie de tabla
+    tab_footnote(
+      locations = cells_column_labels(columns = tp),
+      footnote = "Población económicamente activa (PEA) como porcentaje de la población de 15 años y más."
+    ) |> 
+    tab_footnote(
+      locations = cells_column_labels(columns = td:tpg),
+      footnote = "Valor relativo respecto a la PEA."
+    ) |> 
+    tab_footnote(
+      locations = cells_column_labels(columns = tta:tosi1),
+      footnote = "Valor relativo respecto a la población ocupada."
+    ) |> 
+    tab_footnote(
+      locations = cells_column_labels(columns = tcco),
+      footnote = gt::md("Por construcción, los indicadores de la ENOE, que involucran a la población ocupada u otra variable clasificada en rangos de salarios mínimos, son sensibles a los cambios en dichos salarios. Las cifras de la tasa de condiciones críticas de ocupación (TCCO) se construyen a partir de salarios mínimos nominales. Para efecto de comparar en el tiempo indicadores que toman como referencia salarios mínimos, es necesario considerar la evolución del Índice Nacional de Precios al Consumidor (INPC) y construir salarios mínimos equivalentes, a partir de un año base como referencia. El INEGI pone a disposición de las y los usuarios cifras comparables en el tiempo de la TCCO en la siguiente liga: <https://www.inegi.org.mx/programas/enoe/15ymas/#Tabulados>.")
+    ) |> 
+    tab_source_note(
+      source_note = "Fuente: INEGI. Encuesta Nacional de Ocupación y Empleo (ENOE), 2026."
+    ) |>
+    # estilo de fuente
+    tab_options(
+      heading.title.font.weight = "bold",
+      column_labels.font.weight = "bold"
+    )
+}
+```
+
+Se valida
+
+```{r}
+generar_cuadros_tasas_sub(
+  tabla = ent_tbl,
+  titulo = "ent",
+  subtitulo = "primer trimestre de 2026",
+  encabezado = "Ent"
+)
+```
+
+Sí fue posible!! Ahora se hace explícito los valores permitidos
+
+```{r}
+# arg_titulo <- c("entidad federativa", "área metropolitana")
+# arg_encabezado <- c("Entidad federativa", "Área metropolitana de la ciudad de:")
+
+generar_cuadros_tasas_sub <- 
+  function(
+    tabla, 
+    titulo = c("entidad federativa", "área metropolitana"), 
+    subtitulo, 
+    encabezado = c("Entidad federativa", "Área metropolitana de la ciudad de:")
+  )
+{
+  titulo <- match.arg(titulo)
+  encabezado <- match.arg(encabezado)
+  
+  titulo <- paste(
+    "**Población y tasas complementarias de ocupación y desocupación, <br>según ",
+    titulo,
+    "**",
+    sep = ""
+  )
+  
+  subtitulo <- paste(
+    subtitulo,
+    "<br>(personas y porcentaje)"
+  )
+    
+  tabla |> 
+    gt() |> 
+    # título
+    tab_header(
+      title = md(titulo),
+      subtitle = md(subtitulo)
+    ) |>
+    # encabezado
+    tab_spanner(
+      columns = ocupada:desocupada,
+      label = "Poblacion",
+      level = 2
+    ) |> 
+    tab_spanner(
+      columns = ocupada:desocupada,
+      label = "(personas)",
+      level = 1
+    ) |> 
+    tab_spanner(
+      columns = tp:tosi2,
+      label = "Tasa de",
+      level = 2
+    ) |> 
+    tab_spanner(
+      columns = tp:tosi2,
+      label = "(porcentaje)",
+      level = 1
+    ) |> 
+    cols_hide(columns = til2:tosi2) |> 
+    # etiqueta de encabezados de columnas 
+    cols_label(
+      valor = md(encabezado),
+      ocupada = "Ocupada",
+      desocupada = "Desocupada",
+      tp = "Participación",
+      td = "Desocupación ",
+      topd = "Ocupación parcial y desocupación ",
+      tpg = "Presión general ",
+      tta = "Trabajo asalariado ",
+      tsub = "Subocupación ",
+      tcco = "Condiciones críticas de ocupación ",
+      til1 = "Informalidad laboral 1 ",
+      tosi1 = "Ocupación en el sector informal 1 "
+      # til2 = "Informalidad laboral 2 ",
+      # tosi2 = "Ocupación en el sector informal 2 ",
+    ) |> 
+    # formato de valores de celdas
+    fmt_number(
+      columns = ocupada:desocupada,
+      decimals = 0
+    ) |> 
+    fmt_number(
+      columns = -(valor:desocupada),
+      decimals = 1,
+      scale_by = 100
+    ) |> 
+    # formato de estilo
+    cols_align(columns = valor, align = "left") |>  # primera columna
+    cols_align(columns = ocupada:desocupada, align = "right") |> # población
+    cols_align(columns = starts_with("t"), align = "center") |> # tasas
+    # alineación vertical al centro
+    tab_style(
+    locations = cells_column_labels(),
+    style = cell_text(v_align = "middle")
+    ) |> 
+    # la primera fila en negrita 
+    tab_style(
+    locations = cells_body(rows = 1),
+    style = cell_text(weight = "bold")
+    ) |> 
+    # notas al pie de tabla
+    tab_footnote(
+      locations = cells_column_labels(columns = tp),
+      footnote = "Población económicamente activa (PEA) como porcentaje de la población de 15 años y más."
+    ) |> 
+    tab_footnote(
+      locations = cells_column_labels(columns = td:tpg),
+      footnote = "Valor relativo respecto a la PEA."
+    ) |> 
+    tab_footnote(
+      locations = cells_column_labels(columns = tta:tosi1),
+      footnote = "Valor relativo respecto a la población ocupada."
+    ) |> 
+    tab_footnote(
+      locations = cells_column_labels(columns = tcco),
+      footnote = gt::md("Por construcción, los indicadores de la ENOE, que involucran a la población ocupada u otra variable clasificada en rangos de salarios mínimos, son sensibles a los cambios en dichos salarios. Las cifras de la tasa de condiciones críticas de ocupación (TCCO) se construyen a partir de salarios mínimos nominales. Para efecto de comparar en el tiempo indicadores que toman como referencia salarios mínimos, es necesario considerar la evolución del Índice Nacional de Precios al Consumidor (INPC) y construir salarios mínimos equivalentes, a partir de un año base como referencia. El INEGI pone a disposición de las y los usuarios cifras comparables en el tiempo de la TCCO en la siguiente liga: <https://www.inegi.org.mx/programas/enoe/15ymas/#Tabulados>.")
+    ) |> 
+    tab_source_note(
+      source_note = "Fuente: INEGI. Encuesta Nacional de Ocupación y Empleo (ENOE), 2026."
+    ) |>
+    # estilo de fuente
+    tab_options(
+      heading.title.font.weight = "bold",
+      column_labels.font.weight = "bold"
+    )
+}
+```
+
+Se valida
+
+```{r}
+generar_cuadros_tasas_sub(
+  tabla = cd_tbl,
+  titulo = "área",
+  subtitulo = "primer trimestre de 2026",
+  encabezado = "Área"
+)
+```
+
+Sí!!!!
+
+Con respecto a la tabla por sexo
+
+```{{r}}
+tasas_tbl_gt <- tasas_tbl |> 
+  gt() |> 
+  tab_header(
+    title = "Tasas complementarias, según sexo",
+    subtitle = html("primer trimestre de 2025 y 2026 <br> (porcentaje)")
+  ) |>
+  tab_spanner(
+    label = "Primer trimestre de 2026",
+    columns = c(tasa, contains("sex"))
+  ) |> 
+  cols_hide(columns = c(datos, numerador:denominador)) |> 
+  cols_label(
+    nombre = "Tasa",
+    tasa = "Total",
+    sex_1 = "Hombres",
+    sex_2 = "Mujeres"
+  ) |> 
+  cols_move_to_end(sex_1) |> 
+  cols_align(columns = nombre, align = "left") |> 
+  fmt_number(columns = -nombre, decimals = 1, scale_by = 100) |> 
+  tab_footnote(
+    locations = cells_body(columns = nombre, rows = 1),
+    footnote = "Población económicamente activa (PEA) como porcentaje de la población de 15 años y más."
+  ) |> 
+  tab_footnote(
+    locations = cells_body(columns = nombre, rows = 2:4),
+    footnote = "Valor relativo respecto a la PEA."
+  ) |> 
+  tab_footnote(
+    locations = cells_body(columns = nombre, rows = 5:11),
+    footnote = "Valor relativo respecto a la población ocupada."
+  ) |>
+  tab_footnote(
+    locations = cells_body(columns = nombre, rows = 2),
+    footnote = "Considera a la población que se encuentra sin trabajar, pero que busca trabajo."
+  ) |>
+  tab_footnote(
+    locations = cells_body(columns = nombre, rows = 3),
+    footnote = "Considera a la población desocupada y a la ocupada que trabajó menos de 15 horas a la semana."
+  ) |>
+  tab_footnote(
+    locations = cells_body(columns = nombre, rows = 4),
+    footnote = "Incluye, además de a las y los desocupados, a las y los ocupados que buscan empleo."
+  ) |>
+  tab_footnote(
+    locations = cells_body(columns = nombre, rows = 5),
+    footnote = "Representa a la población que, por las actividades realizadas, percibe un sueldo, salario o jornal, de la unidad económica para la que trabaja."
+  ) |>
+  tab_footnote(
+    locations = cells_body(columns = nombre, rows = 6),
+    footnote = "Porcentaje de la población ocupada que tiene la necesidad y disponibilidad de ofertar más tiempo de trabajo de lo que su ocupación actual le permite."
+  ) |>
+  tab_footnote(
+    locations = cells_body(columns = nombre, rows = 7),
+    footnote = md("Incluye a las personas que trabajan menos de 35 horas a la semana por razones ajenas a sus decisiones, las que trabajan más de 35 horas semanales con ingresos mensuales inferiores al salario mínimo y las que laboran más de 48 horas semanales y ganan hasta 2 salarios mínimos. Por construcción, los indicadores de la ENOE que involucran a la población ocupada, u otra variable clasificada en rangos de salarios mínimos, son sensibles a los cambios en dichos salarios. Para la comparación en el tiempo de la TCCO se presentan resultados a partir de salarios mínimos equivalentes base enero 2026. El INEGI pone a disposición de las y los usuarios cifras comparables en la siguiente liga: <https://www.inegi.org.mx/programas/enoe/15ymas/#Tabulados>.")
+  ) |>
+  tab_footnote(
+    locations = cells_body(columns = nombre, rows = 8),
+    footnote = "Se refiere a la suma, sin duplicar, de las y los ocupados que son laboralmente vulnerables por la naturaleza de la unidad económica para la que trabajan, más aquellas personas cuyo vínculo o dependencia laboral no se reconoce por su fuente de trabajo. Así, en esta tasa se incluyen -además del componente que labora en micronegocios no registrados o sector informal- otras modalidades análogas, como las y los ocupados por cuenta propia en la agricultura de subsistencia, así como a quienes laboran sin la protección de la seguridad social y cuyos servicios los utilizan las unidades económicas registradas."
+  ) |>
+  tab_footnote(
+    locations = cells_body(columns = nombre, rows = 9),
+    footnote = "Representa a la población ocupada que trabaja para una unidad económica que opera a partir de los recursos del hogar, pero sin constituirse como empresa, de modo que la actividad no tiene una situación identificable e independiente de ese hogar."
+  ) |>
+  tab_footnote(
+    locations = cells_body(columns = nombre, rows = 10),
+    footnote = "Proporción de la población ocupada no agropecuaria que comprende la suma, sin duplicar, de las y los ocupados que son laboralmente vulnerables por la naturaleza de la unidad económica para la que trabajan, más otras y otros ocupados no agropecuarios cuyo vínculo o dependencia laboral no se reconoce por su fuente de trabajo."
+  ) |>
+  tab_footnote(
+    locations = cells_body(columns = nombre, rows = 11),
+    footnote = "Proporción de la población ocupada que trabaja para una unidad económica no agropecuaria y que opera a partir de los recursos del hogar, pero sin constituirse como empresa. Así, los ingresos, los materiales y equipos que se utilizan para el negocio no son independientes o distinguibles de los del propio hogar. Esta tasa se calcula teniendo como referente (denominador) a la población ocupada no agropecuaria."
+  ) |> 
+  tab_source_note(
+    source_note = "Fuente: INEGI. Encuesta Nacional de Ocupación y Empleo (ENOE), 2026."
+  ) |>
+  tab_options(
+    heading.title.font.weight = "bold",
+    column_labels.font.weight = "bold",
+    footnotes.order = "preserve_order"
+  )
+```
+
+Lo único que cambia es el periodo actual, por tanto se queda como argumento para la función
+
+```{r}
+generar_cuadro_tasas_tot <- 
+  function(tabla, trimestre, periodo_actual)
+  {  
+    periodo_anterior <- periodo_actual - 1
+    subtitulo <- paste(
+      trimestre, "trimestre de", periodo_anterior, 
+      "y", periodo_actual, "<br>(porcentaje)"
+    )
+    encabezado <- paste(trimestre, "trimestre de", periodo_actual)
+    fuente <- paste(
+      "Fuente: INEGI. Encuesta Nacional de Ocupación y Empleo (ENOE),",
+      periodo_actual, "."
+    )
+    
+    tasas_tbl |> 
+      gt() |> 
+      tab_header(
+        title = md("**Tasas complementarias, según sexo**"),
+        subtitle = md(subtitulo)
+      ) |>
+      tab_spanner(
+        label = encabezado,
+        columns = c(tasa, contains("sex"))
+      ) |> 
+      cols_hide(columns = c(datos, numerador:denominador)) |> 
+      cols_label(
+        nombre = "Tasa",
+        tasa = "Total",
+        sex_1 = "Hombres",
+        sex_2 = "Mujeres"
+      ) |> 
+      cols_move_to_end(sex_1) |> 
+      cols_align(columns = nombre, align = "left") |> 
+      fmt_number(columns = -nombre, decimals = 1, scale_by = 100) |> 
+      tab_footnote(
+        locations = cells_body(columns = nombre, rows = 1),
+        footnote = "Población económicamente activa (PEA) como porcentaje de la población de 15 años y más."
+      ) |> 
+      tab_footnote(
+        locations = cells_body(columns = nombre, rows = 2:4),
+        footnote = "Valor relativo respecto a la PEA."
+      ) |> 
+      tab_footnote(
+        locations = cells_body(columns = nombre, rows = 5:11),
+        footnote = "Valor relativo respecto a la población ocupada."
+      ) |>
+      tab_footnote(
+        locations = cells_body(columns = nombre, rows = 2),
+        footnote = "Considera a la población que se encuentra sin trabajar, pero que busca trabajo."
+      ) |>
+      tab_footnote(
+        locations = cells_body(columns = nombre, rows = 3),
+        footnote = "Considera a la población desocupada y a la ocupada que trabajó menos de 15 horas a la semana."
+      ) |>
+      tab_footnote(
+        locations = cells_body(columns = nombre, rows = 4),
+        footnote = "Incluye, además de a las y los desocupados, a las y los ocupados que buscan empleo."
+      ) |>
+      tab_footnote(
+        locations = cells_body(columns = nombre, rows = 5),
+        footnote = "Representa a la población que, por las actividades realizadas, percibe un sueldo, salario o jornal, de la unidad económica para la que trabaja."
+      ) |>
+      tab_footnote(
+        locations = cells_body(columns = nombre, rows = 6),
+        footnote = "Porcentaje de la población ocupada que tiene la necesidad y disponibilidad de ofertar más tiempo de trabajo de lo que su ocupación actual le permite."
+      ) |>
+      tab_footnote(
+        locations = cells_body(columns = nombre, rows = 7),
+        footnote = md("Incluye a las personas que trabajan menos de 35 horas a la semana por razones ajenas a sus decisiones, las que trabajan más de 35 horas semanales con ingresos mensuales inferiores al salario mínimo y las que laboran más de 48 horas semanales y ganan hasta 2 salarios mínimos. Por construcción, los indicadores de la ENOE que involucran a la población ocupada, u otra variable clasificada en rangos de salarios mínimos, son sensibles a los cambios en dichos salarios. Para la comparación en el tiempo de la TCCO se presentan resultados a partir de salarios mínimos equivalentes base enero 2026. El INEGI pone a disposición de las y los usuarios cifras comparables en la siguiente liga: <https://www.inegi.org.mx/programas/enoe/15ymas/#Tabulados>.")
+      ) |>
+      tab_footnote(
+        locations = cells_body(columns = nombre, rows = 8),
+        footnote = "Se refiere a la suma, sin duplicar, de las y los ocupados que son laboralmente vulnerables por la naturaleza de la unidad económica para la que trabajan, más aquellas personas cuyo vínculo o dependencia laboral no se reconoce por su fuente de trabajo. Así, en esta tasa se incluyen -además del componente que labora en micronegocios no registrados o sector informal- otras modalidades análogas, como las y los ocupados por cuenta propia en la agricultura de subsistencia, así como a quienes laboran sin la protección de la seguridad social y cuyos servicios los utilizan las unidades económicas registradas."
+      ) |>
+      tab_footnote(
+        locations = cells_body(columns = nombre, rows = 9),
+        footnote = "Representa a la población ocupada que trabaja para una unidad económica que opera a partir de los recursos del hogar, pero sin constituirse como empresa, de modo que la actividad no tiene una situación identificable e independiente de ese hogar."
+      ) |>
+      tab_footnote(
+        locations = cells_body(columns = nombre, rows = 10),
+        footnote = "Proporción de la población ocupada no agropecuaria que comprende la suma, sin duplicar, de las y los ocupados que son laboralmente vulnerables por la naturaleza de la unidad económica para la que trabajan, más otras y otros ocupados no agropecuarios cuyo vínculo o dependencia laboral no se reconoce por su fuente de trabajo."
+      ) |>
+      tab_footnote(
+        locations = cells_body(columns = nombre, rows = 11),
+        footnote = "Proporción de la población ocupada que trabaja para una unidad económica no agropecuaria y que opera a partir de los recursos del hogar, pero sin constituirse como empresa. Así, los ingresos, los materiales y equipos que se utilizan para el negocio no son independientes o distinguibles de los del propio hogar. Esta tasa se calcula teniendo como referente (denominador) a la población ocupada no agropecuaria."
+      ) |> 
+      tab_source_note(
+        source_note = fuente
+      ) |>
+      tab_options(
+        heading.title.font.weight = "bold",
+        column_labels.font.weight = "bold",
+        footnotes.order = "preserve_order"
+      )
+  }
+```
+
+Se valida
+
+```{r}
+tasas_label <- c(
+  "Tasa de participación" = "tp",
+  "Tasa de desocupación (TD)" = "td",
+  "Tasa de ocupación parcial y desocupación (TOPD1)" = "topd",
+  "Tasa de presión general (TPRG)" = "tpg",
+  "Tasa de trabajo asalariado" = "tta",
+  "Tasa de subocupación" = "tsub",
+  "Tasa de condiciones críticas de ocupación (TCCO)" = "tcco",
+  "Tasa de informalidad laboral 1 (TIL1)" = "til1",
+  "Tasa de ocupación en el sector informal 1 (TOSI1)" = "tosi1",
+  "Tasa de informalidad laboral 2 (TIL2)" = "til2",
+  "Tasa de ocupación en el sector informal 2 (TOSI2)" = "tosi2"
+)
+
+# Género
+tasas_sex <- tasas_sub |> 
+  filter(grupo == "sex") |> 
+  pivot_wider(
+    id_cols = nombre,
+    names_from = valor,
+    names_prefix = "sex_",
+    # names_sort = TRUE,
+    values_from = tasa
+  )
+
+# Unión
+tasas_tbl <- tasas_tot |> 
+  filter(datos == "sdem") |> 
+  left_join(tasas_sex, by = "nombre") |> 
+  mutate(nombre = fct_recode(nombre, !!!tasas_label))
+```
+
+```{r}
+generar_cuadro_tasas_tot(
+  tabla = tasas_tbl,
+  trimestre = "Primer",
+  periodo_actual = 2026
+)
+```
+
+Sí!!!!
+
+Se añade el tema de la fuente a la función anterior y listo
+
+```{r}
+generar_cuadros_tasas_sub <- 
+  function(
+    tabla, 
+    titulo = c("entidad federativa", "área metropolitana"), 
+    subtitulo, 
+    encabezado = c("Entidad federativa", "Área metropolitana de la ciudad de:"),
+    periodo_actual
+  )
+{
+  titulo <- match.arg(titulo)
+  encabezado <- match.arg(encabezado)
+  
+  titulo <- paste(
+    "**Población y tasas complementarias de ocupación y desocupación, <br>según ",
+    titulo,
+    "**",
+    sep = ""
+  )
+  
+  subtitulo <- paste(
+    subtitulo,
+    "<br>(personas y porcentaje)"
+  )
+  
+  fuente <- paste(
+    "Fuente: INEGI. Encuesta Nacional de Ocupación y Empleo (ENOE),", 
+    periodo_actual
+  )
+    
+  tabla |> 
+    gt() |> 
+    # título
+    tab_header(
+      title = md(titulo),
+      subtitle = md(subtitulo)
+    ) |>
+    # encabezado
+    tab_spanner(
+      columns = ocupada:desocupada,
+      label = "Poblacion",
+      level = 2
+    ) |> 
+    tab_spanner(
+      columns = ocupada:desocupada,
+      label = "(personas)",
+      level = 1
+    ) |> 
+    tab_spanner(
+      columns = tp:tosi2,
+      label = "Tasa de",
+      level = 2
+    ) |> 
+    tab_spanner(
+      columns = tp:tosi2,
+      label = "(porcentaje)",
+      level = 1
+    ) |> 
+    cols_hide(columns = til2:tosi2) |> 
+    # etiqueta de encabezados de columnas 
+    cols_label(
+      valor = md(encabezado),
+      ocupada = "Ocupada",
+      desocupada = "Desocupada",
+      tp = "Participación",
+      td = "Desocupación ",
+      topd = "Ocupación parcial y desocupación ",
+      tpg = "Presión general ",
+      tta = "Trabajo asalariado ",
+      tsub = "Subocupación ",
+      tcco = "Condiciones críticas de ocupación ",
+      til1 = "Informalidad laboral 1 ",
+      tosi1 = "Ocupación en el sector informal 1 "
+      # til2 = "Informalidad laboral 2 ",
+      # tosi2 = "Ocupación en el sector informal 2 ",
+    ) |> 
+    # formato de valores de celdas
+    fmt_number(
+      columns = ocupada:desocupada,
+      decimals = 0
+    ) |> 
+    fmt_number(
+      columns = -(valor:desocupada),
+      decimals = 1,
+      scale_by = 100
+    ) |> 
+    # formato de estilo
+    cols_align(columns = valor, align = "left") |>  # primera columna
+    cols_align(columns = ocupada:desocupada, align = "right") |> # población
+    cols_align(columns = starts_with("t"), align = "center") |> # tasas
+    # alineación vertical al centro
+    tab_style(
+    locations = cells_column_labels(),
+    style = cell_text(v_align = "middle")
+    ) |> 
+    # la primera fila en negrita 
+    tab_style(
+    locations = cells_body(rows = 1),
+    style = cell_text(weight = "bold")
+    ) |> 
+    # notas al pie de tabla
+    tab_footnote(
+      locations = cells_column_labels(columns = tp),
+      footnote = "Población económicamente activa (PEA) como porcentaje de la población de 15 años y más."
+    ) |> 
+    tab_footnote(
+      locations = cells_column_labels(columns = td:tpg),
+      footnote = "Valor relativo respecto a la PEA."
+    ) |> 
+    tab_footnote(
+      locations = cells_column_labels(columns = tta:tosi1),
+      footnote = "Valor relativo respecto a la población ocupada."
+    ) |> 
+    tab_footnote(
+      locations = cells_column_labels(columns = tcco),
+      footnote = gt::md("Por construcción, los indicadores de la ENOE, que involucran a la población ocupada u otra variable clasificada en rangos de salarios mínimos, son sensibles a los cambios en dichos salarios. Las cifras de la tasa de condiciones críticas de ocupación (TCCO) se construyen a partir de salarios mínimos nominales. Para efecto de comparar en el tiempo indicadores que toman como referencia salarios mínimos, es necesario considerar la evolución del Índice Nacional de Precios al Consumidor (INPC) y construir salarios mínimos equivalentes, a partir de un año base como referencia. El INEGI pone a disposición de las y los usuarios cifras comparables en el tiempo de la TCCO en la siguiente liga: <https://www.inegi.org.mx/programas/enoe/15ymas/#Tabulados>.")
+    ) |> 
+    tab_source_note(
+      source_note =  fuente
+    ) |>
+    # estilo de fuente
+    tab_options(
+      heading.title.font.weight = "bold",
+      column_labels.font.weight = "bold"
+    )
+}
+```
+
+Se valida
+
+```{r}
+generar_cuadros_tasas_sub(
+  tabla = cd_tbl,
+  titulo = "área",
+  subtitulo = "primer trimestre de 2026",
+  encabezado = "Área",
+  periodo_actual = 2026
+)
+```
+
+Incluso se podría simplificar en: `grupo = c("entidades", "areas")`, `trimestre` y `periodo`
+
+```{r}
+fn_vgr <- 
+  function(
+    grupo = c("entidades", "ciudades"), 
+    trimestre = c("Primer", "Segundo", "Tercer", "Cuarto"), 
+    anio)
+{
+  
+  grupo <- match.arg(grupo)
+  trimestre <- match.arg(trimestre)
+  
+  if (grupo == "entidades") { 
+    titulo <- "entidad federativa";
+    encabezado <- "Entidad federativa"
+  } 
+  if (grupo == "ciudades") {
+    titulo <- "área metropolitana";
+    encabezado <- "Área metropolitana de la ciudad de:"
+  }
+  
+  titulo <- paste(
+    "**Población y tasas complementarias de ocupación y desocupación, <br> según ",
+    titulo, "**",
+    sep = ""
+  )
+  
+  subtitulo <- paste(trimestre, "trimestre de", anio, "<br>(personas y porcentaje)")
+  fuente <- paste(
+    "Fuente: INEGI. Encuesta Nacional de Ocupación y Empleo (ENOE), ",
+    anio, ".",
+    sep = ""
+  )
+  
+  return(list(titulo, subtitulo, encabezado))
+}
+```
+
+Se valida
+
+```{r}
+fn_vgr(
+  grupo = "ciu",
+  trimestre = "Primer",
+  anio = 2026
+)
+```
+
+Para el caso de tasas por sexo
+
+```{r}
+fn_vgr <- function(
+    # datos_proc,
+    trimestre = c("Primer", "Segundo", "Tercer", "Cuarto"), 
+    anio
+  )
+{
+  trimestre <- match.arg(trimestre)
+  anio_previo <-  anio - 1
+  
+  subtitulo <- paste(
+    trimestre, "trimestre de", anio_previo, "y", anio,
+    "<br>(porcentaje)"
+  )
+  
+  encabezado <- paste(trimestre, "trimestre de", anio)
+  
+  fuente <- paste(
+    "Fuente: INEGI. Encuesta Nacional de Ocupación y Empleo (ENOE), ", 
+    anio, ".",
+    sep = ""
+  )
+  
+  return(list(subtitulo, encabezado, fuente))
+}
+```
+
+Se valida
+
+```{r}
+fn_vgr(trimestre = "Primer", anio = 2026)
+```
+
+Listo! Se añaden a las funciones
+
+```{r}
+generar_cuadro_tasas_tot <- 
+  function(
+    datos_proc, 
+    trimestre = c("Primer", "Segundo", "Tercer", "Cuarto"), 
+    periodo_actual
+  )
+  {  
+    # validar con argumentos especificados
+    trimestre <- match.arg(trimestre)
+    
+    # etiquetas
+    # año previo
+    periodo_anterior <- periodo_actual - 1
+    # subtítulo
+    subtitulo <- paste(
+      trimestre, "trimestre de", periodo_anterior, 
+      "y", periodo_actual, "<br>(porcentaje)"
+    )
+    # encabezado de columna
+    encabezado <- paste(trimestre, "trimestre de", periodo_actual)
+    # fuente
+    fuente <- paste(
+      "Fuente: INEGI. Encuesta Nacional de Ocupación y Empleo (ENOE), ",
+      periodo_actual, ".",
+      sep = ""
+    )
+    
+    # tabla final
+    datos_proc |> 
+      gt() |> 
+      tab_header(
+        title = md("**Tasas complementarias, según sexo**"),
+        subtitle = md(subtitulo)
+      ) |>
+      tab_spanner(
+        label = encabezado,
+        columns = c(tasa, contains("sex"))
+      ) |> 
+      cols_hide(columns = c(datos, numerador:denominador)) |> 
+      cols_label(
+        nombre = "Tasa",
+        tasa = "Total",
+        sex_1 = "Hombres",
+        sex_2 = "Mujeres"
+      ) |> 
+      cols_move_to_end(sex_1) |> 
+      cols_align(columns = nombre, align = "left") |> 
+      fmt_number(columns = -nombre, decimals = 1, scale_by = 100) |> 
+      tab_footnote(
+        locations = cells_body(columns = nombre, rows = 1),
+        footnote = "Población económicamente activa (PEA) como porcentaje de la población de 15 años y más."
+      ) |> 
+      tab_footnote(
+        locations = cells_body(columns = nombre, rows = 2:4),
+        footnote = "Valor relativo respecto a la PEA."
+      ) |> 
+      tab_footnote(
+        locations = cells_body(columns = nombre, rows = 5:11),
+        footnote = "Valor relativo respecto a la población ocupada."
+      ) |>
+      tab_footnote(
+        locations = cells_body(columns = nombre, rows = 2),
+        footnote = "Considera a la población que se encuentra sin trabajar, pero que busca trabajo."
+      ) |>
+      tab_footnote(
+        locations = cells_body(columns = nombre, rows = 3),
+        footnote = "Considera a la población desocupada y a la ocupada que trabajó menos de 15 horas a la semana."
+      ) |>
+      tab_footnote(
+        locations = cells_body(columns = nombre, rows = 4),
+        footnote = "Incluye, además de a las y los desocupados, a las y los ocupados que buscan empleo."
+      ) |>
+      tab_footnote(
+        locations = cells_body(columns = nombre, rows = 5),
+        footnote = "Representa a la población que, por las actividades realizadas, percibe un sueldo, salario o jornal, de la unidad económica para la que trabaja."
+      ) |>
+      tab_footnote(
+        locations = cells_body(columns = nombre, rows = 6),
+        footnote = "Porcentaje de la población ocupada que tiene la necesidad y disponibilidad de ofertar más tiempo de trabajo de lo que su ocupación actual le permite."
+      ) |>
+      tab_footnote(
+        locations = cells_body(columns = nombre, rows = 7),
+        footnote = md("Incluye a las personas que trabajan menos de 35 horas a la semana por razones ajenas a sus decisiones, las que trabajan más de 35 horas semanales con ingresos mensuales inferiores al salario mínimo y las que laboran más de 48 horas semanales y ganan hasta 2 salarios mínimos. Por construcción, los indicadores de la ENOE que involucran a la población ocupada, u otra variable clasificada en rangos de salarios mínimos, son sensibles a los cambios en dichos salarios. Para la comparación en el tiempo de la TCCO se presentan resultados a partir de salarios mínimos equivalentes base enero 2026. El INEGI pone a disposición de las y los usuarios cifras comparables en la siguiente liga: <https://www.inegi.org.mx/programas/enoe/15ymas/#Tabulados>.")
+      ) |>
+      tab_footnote(
+        locations = cells_body(columns = nombre, rows = 8),
+        footnote = "Se refiere a la suma, sin duplicar, de las y los ocupados que son laboralmente vulnerables por la naturaleza de la unidad económica para la que trabajan, más aquellas personas cuyo vínculo o dependencia laboral no se reconoce por su fuente de trabajo. Así, en esta tasa se incluyen -además del componente que labora en micronegocios no registrados o sector informal- otras modalidades análogas, como las y los ocupados por cuenta propia en la agricultura de subsistencia, así como a quienes laboran sin la protección de la seguridad social y cuyos servicios los utilizan las unidades económicas registradas."
+      ) |>
+      tab_footnote(
+        locations = cells_body(columns = nombre, rows = 9),
+        footnote = "Representa a la población ocupada que trabaja para una unidad económica que opera a partir de los recursos del hogar, pero sin constituirse como empresa, de modo que la actividad no tiene una situación identificable e independiente de ese hogar."
+      ) |>
+      tab_footnote(
+        locations = cells_body(columns = nombre, rows = 10),
+        footnote = "Proporción de la población ocupada no agropecuaria que comprende la suma, sin duplicar, de las y los ocupados que son laboralmente vulnerables por la naturaleza de la unidad económica para la que trabajan, más otras y otros ocupados no agropecuarios cuyo vínculo o dependencia laboral no se reconoce por su fuente de trabajo."
+      ) |>
+      tab_footnote(
+        locations = cells_body(columns = nombre, rows = 11),
+        footnote = "Proporción de la población ocupada que trabaja para una unidad económica no agropecuaria y que opera a partir de los recursos del hogar, pero sin constituirse como empresa. Así, los ingresos, los materiales y equipos que se utilizan para el negocio no son independientes o distinguibles de los del propio hogar. Esta tasa se calcula teniendo como referente (denominador) a la población ocupada no agropecuaria."
+      ) |> 
+      tab_source_note(
+        source_note = fuente
+      ) |>
+      tab_options(
+        heading.title.font.weight = "bold",
+        column_labels.font.weight = "bold",
+        footnotes.order = "preserve_order"
+      )
+  }
+```
+
+Para el caso desagregado
+
+```{r}
+generar_cuadros_tasas_sub <- 
+  function(
+    datos_proc, 
+    grupo = c("entidades", "ciudades"), 
+    trimestre = c("Primer", "Segundo", "Tercer", "Cuarto"), 
+    periodo_actual
+  )
+{
+    
+  grupo <- match.arg(grupo)
+  trimestre <- match.arg(trimestre)
+  
+  if (grupo == "entidades") { 
+    titulo <- "entidad federativa";
+    encabezado <- "Entidad federativa"
+  } 
+  if (grupo == "ciudades") {
+    titulo <- "área metropolitana";
+    encabezado <- "Área metropolitana de la ciudad de:"
+  }
+  
+  titulo <- paste(
+    "**Población y tasas complementarias de ocupación y desocupación, <br> según ",
+    titulo, "**",
+    sep = ""
+  )
+  
+  subtitulo <- paste(trimestre, "trimestre de", anio, "<br>(personas y porcentaje)")
+  
+  fuente <- paste(
+    "Fuente: INEGI. Encuesta Nacional de Ocupación y Empleo (ENOE), ",
+    anio, ".",
+    sep = ""
+  )
+    
+  datos_proc |> 
+    gt() |> 
+    # título
+    tab_header(
+      title = md(titulo),
+      subtitle = md(subtitulo)
+    ) |>
+    # encabezado
+    tab_spanner(
+      columns = ocupada:desocupada,
+      label = "Poblacion",
+      level = 2
+    ) |> 
+    tab_spanner(
+      columns = ocupada:desocupada,
+      label = "(personas)",
+      level = 1
+    ) |> 
+    tab_spanner(
+      columns = tp:tosi2,
+      label = "Tasa de",
+      level = 2
+    ) |> 
+    tab_spanner(
+      columns = tp:tosi2,
+      label = "(porcentaje)",
+      level = 1
+    ) |> 
+    cols_hide(columns = til2:tosi2) |> 
+    # etiqueta de encabezados de columnas 
+    cols_label(
+      valor = md(encabezado),
+      ocupada = "Ocupada",
+      desocupada = "Desocupada",
+      tp = "Participación",
+      td = "Desocupación ",
+      topd = "Ocupación parcial y desocupación ",
+      tpg = "Presión general ",
+      tta = "Trabajo asalariado ",
+      tsub = "Subocupación ",
+      tcco = "Condiciones críticas de ocupación ",
+      til1 = "Informalidad laboral 1 ",
+      tosi1 = "Ocupación en el sector informal 1 "
+      # til2 = "Informalidad laboral 2 ",
+      # tosi2 = "Ocupación en el sector informal 2 ",
+    ) |> 
+    # formato de valores de celdas
+    fmt_number(
+      columns = ocupada:desocupada,
+      decimals = 0
+    ) |> 
+    fmt_number(
+      columns = -(valor:desocupada),
+      decimals = 1,
+      scale_by = 100
+    ) |> 
+    # formato de estilo
+    cols_align(columns = valor, align = "left") |>  # primera columna
+    cols_align(columns = ocupada:desocupada, align = "right") |> # población
+    cols_align(columns = starts_with("t"), align = "center") |> # tasas
+    # alineación vertical al centro
+    tab_style(
+    locations = cells_column_labels(),
+    style = cell_text(v_align = "middle")
+    ) |> 
+    # la primera fila en negrita 
+    tab_style(
+    locations = cells_body(rows = 1),
+    style = cell_text(weight = "bold")
+    ) |> 
+    # notas al pie de tabla
+    tab_footnote(
+      locations = cells_column_labels(columns = tp),
+      footnote = "Población económicamente activa (PEA) como porcentaje de la población de 15 años y más."
+    ) |> 
+    tab_footnote(
+      locations = cells_column_labels(columns = td:tpg),
+      footnote = "Valor relativo respecto a la PEA."
+    ) |> 
+    tab_footnote(
+      locations = cells_column_labels(columns = tta:tosi1),
+      footnote = "Valor relativo respecto a la población ocupada."
+    ) |> 
+    tab_footnote(
+      locations = cells_column_labels(columns = tcco),
+      footnote = gt::md("Por construcción, los indicadores de la ENOE, que involucran a la población ocupada u otra variable clasificada en rangos de salarios mínimos, son sensibles a los cambios en dichos salarios. Las cifras de la tasa de condiciones críticas de ocupación (TCCO) se construyen a partir de salarios mínimos nominales. Para efecto de comparar en el tiempo indicadores que toman como referencia salarios mínimos, es necesario considerar la evolución del Índice Nacional de Precios al Consumidor (INPC) y construir salarios mínimos equivalentes, a partir de un año base como referencia. El INEGI pone a disposición de las y los usuarios cifras comparables en el tiempo de la TCCO en la siguiente liga: <https://www.inegi.org.mx/programas/enoe/15ymas/#Tabulados>.")
+    ) |> 
+    tab_source_note(
+      source_note =  fuente
+    ) |>
+    # estilo de fuente
+    tab_options(
+      heading.title.font.weight = "bold",
+      column_labels.font.weight = "bold"
+    )
+  
+}
+```
+
+Listo!
+
+Por otra parte, los archivos generados en `scripts/1_preparacion_datos_v2-1.R` podrían simplificarse a uno solo objeto de tipo lista? Se valida
+
+```{r}
+datos_proc <- list(pob_tot, pob_sub, tasas_tot, tasas_sub)
+
+datos_proc
+```
+
+Sí! Pero cómo se llamarían?
+
+```{r}
+datos_proc[[1]]
+```
+
+De acuerdo! Entonces se modifican los scripts existentes
+
