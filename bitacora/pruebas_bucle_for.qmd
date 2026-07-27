@@ -1,0 +1,262 @@
+---
+date: "26-07-2026"
+format: gfm
+---
+
+Se intenta iterar la obtención de enlaces de los microdatos de la ENOE. 
+
+```{r}
+url <- "https://www.inegi.org.mx/contenidos/programas/enoe/15ymas/microdatos/enoe_2026_trim1_csv.zip"
+
+url
+```
+
+En primer lugar, se extrae el periodo. Se puede hacer con `regmatches` junto con `regexpr`.
+
+Recordemos que `regexpr` devuelve la posición en la que se encuentra el patrón especificado, así como el tamaño de la coincidencia. Por ejemplo, `\\d{4}` busca cualquier dígito que se repite cuatro veces, es decir, cuatro dígitos consecutivos. Véase sección 15.4.3 Clases de caracteres y 15.4.4 Cuantificadores de R for data science (2a ed.): <https://davidrsch.github.io/r4ds-es/regexps.html#clases-de-caracteres> 
+
+```{r}
+regexpr(
+  pattern = "\\d{4}",
+  text = url
+)
+```
+
+Es decir, cuatro números consecutivos se encuentran en la posición 75 de la cadena de texto.
+
+Asimismo, `regmatches` extre o reemplaza los valores coincidentes donde:
+
+* En `x` se especifica el vector de dónde se extraerán los valores coincidentes y 
+* `m` se especifica el patrón resultante, es decir, el resultado de utilizar `regexpr` y otros.
+
+Por ejemplo, para extraer el elemento buscado líneas arriba
+
+```{r}
+regmatches(
+  x = url,
+  m = regexpr(
+    pattern = "\\d{4}",
+    text = url
+  )
+)
+```
+
+Que corresponde al año del periodo.
+
+Por su parte, para extraer el número de trimestre
+
+```{r}
+regmatches(
+  x = url,
+  m = regexpr(
+    pattern = "\\d{1}",
+    text = url
+  )
+)
+```
+
+Para reemplazar se utiliza el argumento `<- value`. Se valida
+
+```{r}
+regmatches(
+  x = url,
+  m = regexpr(
+    pattern = "\\d{4}",
+    text = url
+  )
+) <- 2024
+
+url
+```
+
+No devuelve nada, pero sí actualiza el vector de entrada.
+
+Pero también podría modificarse con `sub` o `gsub`
+
+```{r}
+url
+
+sub(
+  pattern = "\\d{4}",
+  replacement = 2025,
+  x = url
+)
+```
+
+Esta función no cambia el vector de entrada como sí lo hace `regmatches`.
+
+```{{r}}
+gsub(
+  pattern = c("\\d{4}", "\\d{1}"),
+  replacement = c(2025, 2),
+  x = url
+)
+```
+
+Al parecer es posible reemplazar un patrón de búsqueda a la vez
+
+```
+Warning in gsub(pattern = c("\\d{4}", "\\d{1}"), replacement = c(2025, 2),  :
+  el argumento 'pattern' tiene longitud > 1 y sólo el primer elemento será usado
+Warning in gsub(pattern = c("\\d{4}", "\\d{1}"), replacement = c(2025, 2),  :
+  el argumento 'replacement' tiene longitud > 1 y sólo el primer elemento será usado
+```
+
+```{r}
+cadena <- sub(
+  pattern = "\\d{4}", 
+  replacement = 2025,
+  x = url
+)
+
+sub(
+  pattern = "\\d{1}",
+  replacement = 2,
+  x = cadena
+)
+```
+
+Se observa un error al momento de buscar el número de trimestre, no encontré una manera directa de corregir este inconveniente en capítulo 15 expresión regulares <https://davidrsch.github.io/r4ds-es/regexps.html> solamente concatenando
+
+```{r}
+sub(
+  pattern = "trim\\d{1}",
+  replacement = paste("trim", 2),
+  x = cadena
+)
+```
+
+Ahora bien, ¿cómo hacerlo iterativo? Se me ocurre en primera instancia el bucle `for`, se hará como lo sugiere (Grolemund, 2015), esto es, primero definiendo el tamaño del vector y generalmente cualquier objeto fuera del bucle.
+
+En este caso, se define el tamaño del vector, el enlace y el periodo actual del enlace
+
+```{r}
+i <- vector(mode = "integer", length = 5)
+y <- vector(mode = "character", length = 5)
+url <- "https://www.inegi.org.mx/contenidos/programas/enoe/15ymas/microdatos/enoe_2026_trim1_csv.zip"
+year <- regmatches(
+  x = url,
+  m = regexpr(
+    pattern = "\\d{4}",
+    text = url
+  )
+)
+year <- as.integer(year)
+
+i
+y
+url
+year
+```
+
+El ciclo o bucle PARA sería el siguiente
+
+```{r}
+for (i in 1:5) {
+  y[[i]] = sub(
+    pattern = "\\d{4}",
+    replacement = year,
+    x = url
+  )
+  
+  year = year - 1
+}
+```
+
+Se valida
+
+```{r}
+y
+```
+
+Está correcto!!!!
+
+Para el caso del trimestre. Primero se definen los valores antes de utilizar el ciclo
+
+```{r}
+i <- vector(mode = "integer", length = 5)
+
+trim <- regmatches(
+  x = url,
+  m = regexpr(
+    pattern = "\\d{1}",
+    text = url
+  )
+)
+
+trim <- as.integer(trim)
+```
+
+Se realiza bucle
+
+```{{r}}
+for (i in 1:5) {
+  y[[i]] = sub(
+    pattern = "trim\\d{1}",
+    replacement = paste("trim", trim),
+    x = y
+  )
+  
+  trim = trim + 1
+}
+```
+
+Arroja el siguiente error
+
+```
+Error en y[[i]] <- sub(pattern = "trim\\d{1}", replacement = paste("trim", : 
+  se dan más elementos que los que pueden ser sustituídos
+```
+
+Se valida
+
+```{r}
+y
+```
+
+```{r}
+sub(
+    pattern = "trim\\d{1}",
+    replacement = paste("trim", trim),
+    x = y
+  )
+```
+
+Lo hace para cada elemento del vector, si especificamos solo un elemento?
+
+```{r}
+sub(
+    pattern = "trim\\d{1}",
+    replacement = paste("trim", trim),
+    x = y[[1]]
+  )
+```
+
+Así podría hacerse para el ciclo
+
+```{r}
+for (i in 1:5) {
+  y[[i]] = sub(
+    pattern = "trim\\d{1}",
+    replacement = paste("trim", trim),
+    x = y[[i]]
+  )
+  
+  trim = trim + 1
+}
+```
+
+Se valida
+
+```{r}
+y
+```
+
+Listo!!!! La pregunta del millón ¿cómo ponerlos juntos?
+
+Se me ocurre `while` o `repeat`, o bien `switch` que creo este último es `case_when`
+
+Se decide hacerlo de forma visual (diagrama de flujo) antes de realizar el código
+
+
+
