@@ -1,0 +1,254 @@
+---
+date: "25-07-2026"
+format: html
+---
+
+Una forma de extraer SDEM
+
+```{r}
+library(tidyverse)
+
+str_extract(
+  string = "https://www.inegi.org.mx/contenidos/programas/enoe/15ymas/microdatos/enoe_2026_trim1_csv.zip",
+  pattern = "enoe|ENOE"
+)
+```
+
+O bien,
+
+```{r}
+grepl(
+  x = "https://www.inegi.org.mx/contenidos/programas/enoe/15ymas/microdatos/enoe_2026_trim1_csv.zip",
+  pattern = "enoe|ENOE"
+)
+```
+
+O bien, `ignore.case` no distingue entre mayúsculas y minúsculas
+
+```{r}
+grepl(
+  x = "https://www.inegi.org.mx/contenidos/programas/enoe/15ymas/microdatos/enoe_2026_trim1_csv.zip",
+  pattern = "ENOE",
+  ignore.case = TRUE
+)
+```
+
+```{r}
+sub(
+  x = "https://www.inegi.org.mx/contenidos/programas/enoe/15ymas/microdatos/enoe_2026_trim1_csv.zip",
+  pattern = "ENOE",
+  replacement = "inegi",
+  ignore.case = TRUE
+)
+```
+
+```{r}
+regexpr(
+  text = "https://www.inegi.org.mx/contenidos/programas/enoe/15ymas/microdatos/enoe_2026_trim1_csv.zip",
+  pattern = "ENOE",
+  ignore.case = TRUE
+)
+
+regexec(
+  text = "https://www.inegi.org.mx/contenidos/programas/enoe/15ymas/microdatos/enoe_2026_trim1_csv.zip",
+  pattern = "ENOE",
+  ignore.case = TRUE
+)
+
+grep(
+  x = "https://www.inegi.org.mx/contenidos/programas/enoe/15ymas/microdatos/enoe_2026_trim1_csv.zip",
+  pattern = "ENOE",
+  ignore.case = TRUE
+)
+
+grep(
+  x = "https://www.inegi.org.mx/contenidos/programas/enoe/15ymas/microdatos/enoe_2026_trim1_csv.zip",
+  pattern = "ENOE",
+  ignore.case = TRUE,
+  value = TRUE
+)
+```
+
+Por otro lado,
+
+```{r}
+  # Proceso de eliminación ----
+  # archivos descargados
+  archivo_temp <- list.files(dir_temp, pattern = "\\.zip$|\\.csv$", full.names = TRUE)
+  unlink(archivo_temp)
+
+url <- "https://www.inegi.org.mx/contenidos/programas/enoe/15ymas/microdatos/enoe_2026_trim1_csv.zip"
+
+# Almacena la ruta del directorio temporal
+  dir_temp <- tempdir(check = TRUE)
+  
+  # Crea un archivo temporal que contendrá el archivo descargado
+  archivo_temp <- tempfile(tmpdir = dir_temp, fileext = ".zip")
+  
+  # Proceso de descarga ----
+  # tiempo máximo de descarga 15 min
+  options(timeout = max(900, getOption("timeout")))
+  
+  download.file(url, destfile = archivo_temp) # descarga
+  
+  # ruta del archivo comprimido
+  archivo_temp <- list.files(dir_temp, pattern = "\\.zip$", full.names = TRUE)
+  
+  # lista de los microdatos comprimidos
+  microdatos <- unzip(archivo_temp, list = TRUE)$Name
+```
+
+```{r}
+microdatos
+```
+
+```{r}
+  unzip(
+    archivo_temp, 
+    # cuestionario especifico
+    files = microdatos[grepl(cuestionario, microdatos)],
+    exdir = dir_temp,
+    # list = TRUE
+  )
+```
+
+```{r}
+list.files(tempdir())
+```
+
+```{r}
+# Proceso de carga ----
+  # ruta del archivo extraído
+  # microdatos <- 
+  list.files(dir_temp, pattern = "\\.csv", full.names = TRUE)
+  
+```
+
+¿Por qué?
+
+```{r}
+cuestionario <- "sdem"
+
+microdatos[grepl(cuestionario, microdatos, ignore.case = TRUE)]
+
+grepl(cuestionario, microdatos, ignore.case = TRUE)
+
+microdatos[microdatos == "[sdem|SDEM]"]
+```
+
+¿POR QUÉ? Si `grepl` devuelve un valor lógico, dentro de un objeto (vector) devuelve el elemento que es `TRUE`?
+
+
+```{r}
+cuestionario <- "sdem"
+
+grep(cuestionario, microdatos, ignore.case = TRUE)
+grepv(cuestionario, microdatos, ignore.case = TRUE)
+grepl(cuestionario, microdatos, ignore.case = TRUE)
+
+# regexpr(cuestionario, microdatos, ignore.case = TRUE)
+# gregexpr(cuestionario, microdatos, ignore.case = TRUE)
+# regexec(cuestionario, microdatos, ignore.case = TRUE)
+# gregexec(cuestionario, microdatos, ignore.case = TRUE)
+
+# microdatos[grep(cuestionario, microdatos, ignore.case = TRUE)]
+
+# microdatos[microdatos == "[sdem|SDEM]"]
+```
+
+Entonces puede también ser así
+
+```{r}
+list.files(tempdir())
+
+cuestionario <- "sdem"
+microdatos
+grepv(cuestionario, microdatos, ignore.case = TRUE)
+
+  unzip(
+    archivo_temp, 
+    # cuestionario especifico
+    files = grepv(cuestionario, microdatos, ignore.case = TRUE),
+    exdir = dir_temp,
+    overwrite = TRUE
+  )
+```
+
+```{r}
+list.files(tempdir(), full.names = TRUE)
+list.files(dir_temp, full.names = TRUE)
+
+grepv(cuestionario, list.files(dir_temp, full.names = TRUE), ignore.case = TRUE)
+```
+
+
+```{r}
+# Proceso de carga ----
+  # ruta del archivo extraído
+  microdatos <- list.files(dir_temp, pattern = "\\.csv", full.names = TRUE)
+  
+```
+
+```{r}
+microdatos
+```
+
+```{r}
+ # microdatos <- read_csv(microdatos, col_types = cols(.default = col_character()))
+```
+
+```{r}
+cuestionario
+microdatos
+grepv(cuestionario, microdatos, ignore.case = TRUE)
+
+grepv(
+  pattern = "csv",
+  x = microdatos
+)
+
+grepv(
+  pattern = "c",
+  x = microdatos
+)
+```
+
+RESUMEN
+
+* Validar 
+
+```{{r}}
+  unzip(
+    archivo_temp, 
+    # cuestionario especifico
+    files = microdatos[grepl(cuestionario, microdatos)],
+    exdir = dir_temp
+  )
+```
+
+Dado que `grepl(cuestionario, microdatos)` devuelve un valor lógico
+
+* Cambiar 
+
+```{{r}}
+# antes
+  unzip(
+    archivo_temp, 
+    # cuestionario especifico
+    files = microdatos[grepl(cuestionario, microdatos)],
+    exdir = dir_temp
+  )
+
+# ahora
+  unzip(
+    archivo_temp, 
+    # cuestionario especifico
+    files = grepv(cuestionario, microdatos, ignore.case = TRUE),
+    exdir = dir_temp,
+    overwrite = TRUE
+  )
+
+```
+
+Dado que `grepv` devuelve el valor del elemento coincidente e `ignore.case` busca coincidencias ya sea mayúsculas o minúsculas.
+
