@@ -208,35 +208,31 @@ descargar_enoe <- function(url){
   # ruta de los archivos extraídos
   enoe <- list.files(dir_temp, pattern = "\\.csv", full.names = TRUE)
   
-  # cuestionario de ocupación y empleo 1
-  coe1 <- read_csv(
-    enoe[grepl("COE1", enoe)],
-    col_types = cols(.default = col_character())
-  )
+  # para la lista
+  nombres <- basename(enoe)
   
-  # cuestionario de ocupación y empleo 2
-  coe2 <- read_csv(
-    enoe[grepl("COE2", enoe)],
-    col_types = cols(.default = col_character())
-  )
+  nombres <- sub(
+    x = nombres,
+    pattern = "ENOE_", # se elimina prefijo ENOE
+    replacement = ""
+  ) 
   
-  # hogar
-  hog <- read_csv(
-    enoe[grepl("HOG", enoe)], 
-    col_types = cols(.default = col_character())
-  )
+  nombres <- sub(
+    x = nombres,
+    pattern = ".csv",
+    replacement = "" # se elimina extensión
+  ) 
   
-  # sociodemográfico
-  sdem <- read_csv(
-    enoe[grepl("SDEM", enoe)],
-    col_types = cols(.default = col_character())
-  )
-  
-  # vivienda
-  viv <- read_csv(
-    enoe[grepl("VIV", enoe)], 
-    col_types = cols(.default = col_character())
-  )
+  # se crea lista que contiene todos los módulos
+  enoe <- enoe |> 
+    set_names(nm = nombres) |> 
+    map(
+      \(enoe)
+      readr::read_csv(
+        file = enoe,
+        col_types = cols(.default = col_character())
+      )
+    )
   
   # proceso de eliminación ----
   
@@ -253,54 +249,56 @@ descargar_enoe <- function(url){
   # eliminación de objetos creados
   # remove(list = c("archivo_temp", "dir_temp", "enoe", "url")) 
   
-  return(list(coe1 = coe1, coe2 = coe2, hog = hog, sdem = sdem, viv = viv))
+  return(enoe)
   
 }
 
-descargar_modulo <- function(url, cuestionario){
-  # Datos de entrada ----
-  
-  # Almacena la ruta del directorio temporal
-  dir_temp <- tempdir(check = TRUE)
-  
-  # Crea un archivo temporal que contendrá el archivo descargado
-  archivo_temp <- tempfile(tmpdir = dir_temp, fileext = ".zip")
-  
-  # Proceso de descarga ----
-  # tiempo máximo de descarga 15 min
-  options(timeout = max(900, getOption("timeout")))
-  
-  download.file(url, destfile = archivo_temp) # descarga
-  
-  # ruta del archivo comprimido
-  archivo_temp <- list.files(dir_temp, pattern = "\\.zip$", full.names = TRUE)
-  
-  # lista de los microdatos comprimidos
-  microdatos <- unzip(archivo_temp, list = TRUE)$Name
-  
-  unzip(
-    archivo_temp, 
-    # cuestionario especifico
-    files = microdatos[grepl(cuestionario, microdatos)],
-    exdir = dir_temp
-  )
-  
-  # Proceso de carga ----
-  # ruta del archivo extraído
-  microdatos <- list.files(dir_temp, pattern = "\\.csv", full.names = TRUE)
-  
-  microdatos <- read_csv(microdatos, col_types = cols(.default = col_character()))
-  
-  # Proceso de eliminación ----
-  # archivos descargados
-  archivo_temp <- list.files(dir_temp, pattern = "\\.zip$|\\.csv$", full.names = TRUE)
-  unlink(archivo_temp)
-  
-  # objetos creados
-  # remove(list = c("archivo_temp", "cuestionario", "dir_temp", "url"))
-  
-  return(microdatos)
-}
+descargar_modulo <- 
+  function(url, modulo = c("hog", "viv", "sdem", "coe1", "coe2"))
+  {
+    # Datos de entrada ----
+    
+    # Almacena la ruta del directorio temporal
+    dir_temp <- tempdir(check = TRUE)
+    
+    # Crea un archivo temporal que contendrá el archivo descargado
+    archivo_temp <- tempfile(tmpdir = dir_temp, fileext = ".zip")
+    
+    # Proceso de descarga ----
+    # tiempo máximo de descarga 15 min
+    options(timeout = max(900, getOption("timeout")))
+    
+    download.file(url, destfile = archivo_temp) # descarga
+    
+    # ruta del archivo comprimido
+    archivo_temp <- list.files(dir_temp, pattern = "\\.zip$", full.names = TRUE)
+    
+    # lista de los microdatos comprimidos
+    microdatos <- unzip(archivo_temp, list = TRUE)$Name
+    
+    unzip(
+      archivo_temp, 
+      # modulo especifico
+      files = grepv(modulo, microdatos, ignore.case = TRUE),
+      exdir = dir_temp
+    )
+    
+    # Proceso de carga ----
+    # ruta del archivo extraído
+    microdatos <- list.files(dir_temp, pattern = "\\.csv", full.names = TRUE)
+    
+    microdatos <- read_csv(microdatos, col_types = cols(.default = col_character()))
+    
+    # Proceso de eliminación ----
+    # archivos descargados
+    archivo_temp <- list.files(dir_temp, pattern = "\\.zip$|\\.csv$", full.names = TRUE)
+    unlink(archivo_temp)
+    
+    # objetos creados
+    # remove(list = c("archivo_temp", "modulo", "dir_temp", "url"))
+    
+    return(microdatos)
+  }
 
 descargar_n_modulos <- function(url, n_year, modulo)
 {
