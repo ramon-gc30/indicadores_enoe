@@ -259,4 +259,1391 @@ Se me ocurre `while` o `repeat`, o bien `switch` que creo este último es `case_
 Se decide hacerlo de forma visual (diagrama de flujo) antes de realizar el código
 
 
+Lunes 27 de julio
+
+Ya se tiene la idea general del código
+
+```
+# definición de variables 
+URL 
+Año actual
+Año final = año actual - 4
+Año= año actual 
+Trimestre actual 
+Trimestre total = 4
+Trimestre= trimestre actual 
+
+# bucle de años 
+Mientras año <= año_final
+
+# bucle de trimestres 
+  Mientras trimestre >= 1
+    URL + año + trimestre [[ i ]]
+    Si año <> año actual & trimestre <> trimestre actual entonces 
+    Trimestre = trimestre - 1
+    i = i + 1 # elemento del vector
+    Sino
+      Fin mientras 
+    Fin sí 
+  Fin mientras 
+
+# fuera del ciclo 
+trimestre=4
+Año = año + 1
+i = i + 1
+Fin mientras 
+```
+
+Se me ocurre utilizar `while` y `repeat` (Grolemund, 2015, 168-169).
+
+Algo así
+
+```{{r}}
+year_actual = 2026
+year_final = year_actual - 4
+year = year_actual
+trimestre_actual = 4
+trimestre_final = trimestre_actual
+trimestre = trimestre_actual
+tamanio = trimestre_actual + (4 * 3) + (4 - trimestre_final + 1)
+i <- vector(mode = "integer", length = tamanio)
+url <- vector(mode = "character", length = nrow(i))
+
+while (year <= year_final) {
+  repeat {
+    url[[i]] <- paste(year, trimestre)
+    if (year != year_final & trimestre != trimestre_actual) {
+      trimestre = trimestre - 1 
+      i = i + 1
+    } else {
+      break
+    }
+  }
+  
+  trimestre = 4
+  year = year + 1
+  i = i + 1 
+}
+```
+
+En primer lugar, se definen las variables a utilizar
+
+```{r}
+year_actual <- 2026
+year_final <- year_actual - 4
+year <- year_actual
+trimestre_actual <- 4
+trimestre_final <- trimestre_actual
+trimestre <- trimestre_actual
+tamanio <- trimestre_actual + (4 * 3) + (4 - trimestre_final + 1)
+i <- 1
+url <- vector(mode = "character", length = tamanio)
+```
+
+Se valida
+
+```{r}
+year_actual
+year_final
+year
+
+trimestre_actual
+trimestre_final
+trimestre
+
+tamanio
+i
+url
+```
+
+Ahora se ejecuta el ciclo. Vayamos por pasos, primero validemos el operador condicional
+
+```{r}
+if (year != year_final & trimestre != trimestre_actual) {
+      print("Sí")
+    } else {
+      print("No")
+    }
+```
+
+Devuelve "No" ¿por qué?
+
+Vayamos por partes
+
+```{r}
+year
+year_final
+
+if (year != year_final) {
+      print("Sí")
+    } else {
+      print("No")
+    }
+```
+
+Está correcto!
+
+```{r}
+trimestre
+trimestre_actual
+
+if (trimestre != trimestre_actual) {
+      print("Sí")
+    } else {
+      print("No")
+    }
+```
+
+Aquí está el error, debo mover `trimestre`. Recordemos que en el operador AND deben cumplirse, ser verdaderas ambas condiciones. Por tanto, modificamos el operador condicional de distinto a igual que expresa si el año es igual al año final y, al mismo tiempo, el trimestre es igual al trimestre actual se detiene el bucle. En caso contrario, se continua con dicho bucle. Se hace como sigue
+
+```{{r}}
+while (year <= year_final) {
+  repeat {
+    url[[i]] <- paste(year, trimestre)
+    
+    if (year == year_final & trimestre == trimestre_actual) {
+      break
+    } else {
+      trimestre = trimestre - 1 
+      i = i + 1
+    }
+  }
+  
+  trimestre = 4
+  year = year - 1
+  i = i + 1 
+}
+```
+
+Se vuelve a validar
+
+```{r}
+if (year == year_final & trimestre == trimestre_actual) {
+      print("Sí es igual")
+    } else {
+      print("No es igual")
+    }
+```
+
+Está correcto! Podemos utilizar `while` + `break`, así pues se cambia a dicho operador
+
+```{{r}}
+while (year <= year_final) {
+  
+  while (trimestre >= 1) {
+    
+    url[[i]] <- paste(year, trimestre)
+    
+    if (year == year_final & trimestre == trimestre_actual) {
+      break
+    } else {
+      trimestre = trimestre - 1 
+      i = i + 1
+    }
+  } 
+  
+  trimestre = 4
+  year = year - 1
+  i = i + 1 
+}
+```
+
+Se ejecuta (espero no genere un bucle infinito)
+
+```{r}
+while (year <= year_final) {
+  
+  while (trimestre >= 1) {
+    
+    url[[i]] <- paste(year, trimestre)
+    
+    if (year == year_final & trimestre == trimestre_actual) {
+      break
+    } else {
+      trimestre <- trimestre - 1 
+      i <- i + 1
+    }
+  } 
+  
+  trimestre <- 4
+  year <- year - 1
+  i <- i + 1 
+}
+```
+
+Se valida
+
+```{r}
+url
+```
+
+No hizo absolutamente nada ¿por qué?
+
+Validemos. Se puede hacer con `ifelse`
+
+```{r}
+ifelse(
+  year == year_final & trimestre == trimestre_actual,
+  print("Sí"),
+  print("No")
+  ) 
+```
+
+Creo que no funciona con dos o más condiciones.
+
+```{r}
+trimestre = 4
+
+while (trimestre >= 1) {
+  print(trimestre)
+  trimestre = trimestre - 1
+}
+
+trimestre
+```
+
+Como se observa, sí funciona y al final `trimestre` vale cero. Se añade operador SI
+
+```{r}
+trimestre = 4
+
+while (trimestre >= 1) {
+  print(trimestre)
+  if (trimestre == 1) {
+    break
+  } else {
+    trimestre = trimestre - 1
+  }
+  
+}
+
+trimestre
+```
+
+También funciona
+
+Ahora validemos la asignación por concatenación
+
+```{r}
+url[[1]]
+
+paste(year, trimestre)
+
+url[[1]] <- paste(year, trimestre)
+
+url
+```
+
+También está correcto
+
+Ahora validemos el bucle correspondiente a los periodos
+
+```{r}
+year 
+year_final
+
+while (year <= year_final) {
+
+  print(year)
+  year <- year - 1
+}
+
+year
+```
+
+Aquí está el problema. Solamente lo ejecuta una vez y ya ¿por qué?
+
+Se define
+
+```{r}
+year <- 2026
+year_final <- year - 4
+
+while (year <= year_final) {
+
+  print(year)
+  year <- year - 1
+}
+
+year
+```
+
+Devuelve el año definido ¿por qué?
+
+```{r}
+year <= year_final
+```
+
+La condición debe ser al revés
+
+```{r}
+year_final <= year
+```
+
+Se valida
+
+```{r}
+year <- 2026
+year_final <- year - 4
+
+while (year_final <= year) {
+
+  print(year)
+  year <- year - 1
+}
+
+year
+```
+
+Ahora sí!!!
+
+Se vuelve a definir las variables
+
+```{r}
+year_actual <- 2026
+year_final <- year_actual - 4
+year <- year_actual
+trimestre_actual <- 4
+trimestre_final <- trimestre_actual
+trimestre <- trimestre_actual
+tamanio <- trimestre_actual + (4 * 3) + (4 - trimestre_final + 1)
+i <- 1
+url <- vector(mode = "character", length = tamanio)
+```
+
+
+Se cambia dicha cuestión y se vuelve a ejecutar el código
+
+```{r}
+while (year_final <= year) {
+  
+  while (trimestre >= 1) {
+    
+    url[[i]] <- paste(year, trimestre)
+    
+    if (year == year_final & trimestre == trimestre_actual) {
+      break
+    } else {
+      trimestre <- trimestre - 1 
+      i <- i + 1
+    }
+  } 
+  
+  trimestre <- 4
+  year <- year - 1
+  i <- i + 1 
+}
+```
+
+Se valida
+
+```{r}
+url
+```
+
+Está más o menos correcto. De los valores obtenidos tengo `""` por tanto aumenta el tamaño del vector esperado
+
+```{r}
+length(url)
+```
+
+¿Por qué? Se valida `i`
+
+```{r}
+while (year_final <= year) {
+  
+  while (trimestre >= 1) {
+    print(i)
+    
+    url[[i]] <- paste(year, trimestre)
+    
+    if (year == year_final & trimestre == trimestre_actual) {
+      break
+    } else {
+      trimestre <- trimestre - 1 
+      i <- i + 1
+    }
+  } 
+  
+  trimestre <- 4
+  year <- year - 1
+  i <- i + 1 
+}
+```
+
+Aquí está el error ¿por qué lo tengo?
+
+Por `i <- i + 1 ` en el primer bucle, relacionado al `trimestre` cuando este vale 1 aunque analiza el operador condicional y como no se cumple con la condición todavía asigna `i = i + 1` y después `trimestre` vale 0, se sale de dicho bucle y ahora continua con las definiciones `trimestre = 4` y, entre otros, `i = i + 1`, pero aquí `i` vale 5 y por tanto ahora vale 6. 
+
+Si se elimina parece que se ejecutará correctamente. Se realiza dicha modificación y se ejecuta.
+
+```{r}
+while (year_final <= year) {
+  
+  while (trimestre >= 1) {
+    print(i)
+    
+    url[[i]] <- paste(year, trimestre)
+    
+    if (year == year_final & trimestre == trimestre_actual) {
+      break
+    } else {
+      trimestre <- trimestre - 1 
+      i <- i + 1
+    }
+  } 
+  
+  trimestre <- 4
+  year <- year - 1
+}
+```
+
+Correcto! Ahora validamos el vector creado
+
+```{r}
+url
+```
+
+Sí!!!!
+
+Este es el código para obtener los enlaces de los periodos previos. Ahora solamente falta incorporar el tema del enlace. Se realiza
+
+En primer este es el enlace <https://www.inegi.org.mx/contenidos/programas/enoe/15ymas/microdatos/enoe_2026_trim1_csv.zip>
+
+Se asigna a una variable
+
+```{r}
+url <- "https://www.inegi.org.mx/contenidos/programas/enoe/15ymas/microdatos/enoe_2026_trim1_csv.zip"
+
+url
+```
+
+Necesitamos extraer:
+
+* Año
+* Trimestre
+
+Para el caso de año, se valida en primer lugar que sea el valor correcto
+
+```{r}
+regmatches(
+  x = url,
+  m = regexpr(
+    pattern = "\\d{4}",
+    text = url
+  )
+)
+```
+
+Para el caso del trimestre
+
+```{r}
+regmatches(
+  x = url,
+  m = regexpr(
+    pattern = "\\d{1}",
+    text = url
+  )
+)
+```
+
+Extrae el que dice `15ymas`. Para corroborar se valida con el siguiente enlace
+
+```{r}
+url <- "https://www.inegi.org.mx/contenidos/programas/enoe/15ymas/microdatos/enoe_2025_trim4_csv.zip"
+
+regmatches(
+  x = url,
+  m = regexpr(
+    pattern = "\\d{1}",
+    text = url
+  )
+)
+```
+
+Ese enlace corresponde al cuarto trimestre, pero devuelve 1. ¿Cómo solucionarlo?
+
+`?base::regex`: Una clase de caracteres es una lista de caracteres encerrada entre `[` y `]` que coincide con cualquier carácter individual de esa lista; a menos que el primer carácter de la lista sea el circunflejo ‘^’, en cuyo caso coincide con cualquier carácter que no esté en la lista. Por ejemplo, la expresión regular ‘[0123456789]’ coincide con cualquier dígito, y ‘[^abc]’ coincide con cualquier carácter excepto ‘a’, ‘b’ o ‘c’. Se puede especificar un rango de caracteres indicando el primero y el último, separados por un guion.
+
+
+```{r}
+url <- "https://www.inegi.org.mx/contenidos/programas/enoe/15ymas/microdatos/enoe_2025_trim4_csv.zip"
+
+regmatches(
+  x = url,
+  m = regexpr(
+    pattern = "[1-4]",
+    text = url
+  )
+)
+```
+
+```{r}
+url <- "https://www.inegi.org.mx/contenidos/programas/enoe/15ymas/microdatos/enoe_2025_trim4_csv.zip"
+
+regmatches(
+  x = url,
+  m = regexpr(
+    pattern = "\\d{1,}",
+    text = url
+  )
+)
+```
+
+Pues no encontré la manera. Lo único que se me ocurre es hacerlo en dos pasos
+
+```{r}
+url <- "https://www.inegi.org.mx/contenidos/programas/enoe/15ymas/microdatos/enoe_2025_trim4_csv.zip"
+
+trimestre <- regmatches(
+  x = url,
+  m = regexpr(
+    pattern = "trim\\d{1}",
+    text = url
+  )
+)
+
+trimestre
+
+trimestre <- regmatches(
+  x = trimestre,
+  m = regexpr(
+    pattern = "\\d{1}",
+    text = trimestre
+  )
+)
+
+trimestre
+```
+
+Listo!
+
+Se definen variables iniciales
+
+```{r}
+# enlace de los microdatos
+url <- "https://www.inegi.org.mx/contenidos/programas/enoe/15ymas/microdatos/enoe_2026_trim1_csv.zip"
+
+# año
+year_actual <- regmatches(
+  x = url,
+  m = regexpr(
+    pattern = "\\d{4}",
+    text = url
+  )
+)
+
+# número de trimestre
+trimestre_actual <- regmatches(
+  x = url,
+  m = regexpr(
+    pattern = "trim\\d{1}",
+    text = url
+  )
+)
+
+trimestre_actual <- regmatches(
+  x = trimestre,
+  m = regexpr(
+    pattern = "\\d{1}",
+    text = trimestre
+  )
+)
+```
+
+Se valida
+
+```{r}
+url
+year_actual
+trimestre_actual
+```
+
+Se convierte a tipo entero
+
+```{r}
+year_actual <- as.integer(year_actual)
+trimestre_actual <- as.integer(trimestre_actual)
+```
+
+Se define el resto de las variables
+
+```{r}
+url_actual <- "https://www.inegi.org.mx/contenidos/programas/enoe/15ymas/microdatos/enoe_2026_trim1_csv.zip"
+
+year_actual <- as.integer(year_actual)
+year_final <- year_actual - 4
+year <- year_actual
+
+trimestre_actual <- as.integer(trimestre_actual)
+trimestre_final <- trimestre_actual
+trimestre <- trimestre_actual
+
+i <- 1
+tamanio <- trimestre_actual + (4 * 3) + (4 - trimestre_final + 1)
+url <- vector(mode = "character", length = tamanio)
+```
+
+Se valida `sub`
+
+```{r}
+sub(
+  pattern = "\\d{4}",
+  replacement = year,
+  x = url_actual
+)
+
+sub(
+  pattern = "trim\\d{1}",
+  replacement = paste("trim", trimestre),
+  x = url_actual
+)
+```
+
+
+Ahora se define bucle
+
+```{r}
+while (year_final <= year) {
+
+  while (trimestre >= 1) {
+
+    url[[i]] <- sub(
+      pattern = "\\d{4}",
+      replacement = year,
+      x = url_actual
+    )
+    
+    url[[i]] <- sub(
+      pattern = "trim\\d{1}",
+      replacement = paste("trim", trimestre, sep = ""),
+      x = url_actual
+    )
+    
+    if (year == year_final & trimestre == trimestre_actual) {
+      break
+    } else {
+      trimestre <- trimestre - 1 
+      i <- i + 1
+    }
+  } 
+  
+  trimestre <- 4
+  year <- year - 1
+}
+```
+
+Se valida
+
+```{r}
+url
+```
+
+No cambia el año. Se cambia
+
+```{r}
+while (year_final <= year) {
+  
+  while (trimestre >= 1) {
+
+    url[[i]] <- sub(
+      pattern = "\\d{4}",
+      replacement = year,
+      x = url_actual
+    )
+
+    url[[i]] <- sub(
+      pattern = "trim\\d{1}",
+      replacement = paste("trim", trimestre, sep = ""),
+      x = url[[i]]
+    )
+    
+    if (year == year_final & trimestre == trimestre_actual) {
+      break
+    } else {
+      trimestre <- trimestre - 1 
+      i <- i + 1
+    }
+  } 
+  
+  trimestre <- 4
+  year <- year - 1
+}
+```
+
+Se valida
+
+```{r}
+url
+```
+
+Listo!!!!
+
+Los enlaces oficiales del periodo esbozado son los siguientes:
+
+https://www.inegi.org.mx/contenidos/programas/enoe/15ymas/microdatos/enoe_2026_trim1_csv.zip
+https://www.inegi.org.mx/contenidos/programas/enoe/15ymas/microdatos/enoe_2025_trim4_csv.zip
+https://www.inegi.org.mx/contenidos/programas/enoe/15ymas/microdatos/enoe_2025_trim3_csv.zip
+https://www.inegi.org.mx/contenidos/programas/enoe/15ymas/microdatos/enoe_2025_trim2_csv.zip
+https://www.inegi.org.mx/contenidos/programas/enoe/15ymas/microdatos/enoe_2025_trim1_csv.zip
+https://www.inegi.org.mx/contenidos/programas/enoe/15ymas/microdatos/enoe_2024_trim4_csv.zip
+https://www.inegi.org.mx/contenidos/programas/enoe/15ymas/microdatos/enoe_2024_trim3_csv.zip
+https://www.inegi.org.mx/contenidos/programas/enoe/15ymas/microdatos//enoe_2024_trim2_csv.zip
+https://www.inegi.org.mx/contenidos/programas/enoe/15ymas/microdatos/enoe_2024_trim1_csv.zip
+https://www.inegi.org.mx/contenidos/programas/enoe/15ymas/microdatos/enoe_2023_trim4_csv.zip
+https://www.inegi.org.mx/contenidos/programas/enoe/15ymas/microdatos/enoe_2023_trim3_csv.zip
+https://www.inegi.org.mx/contenidos/programas/enoe/15ymas/microdatos/enoe_2023_trim2_csv.zip
+https://www.inegi.org.mx/contenidos/programas/enoe/15ymas/microdatos/enoe_2023_trim1_csv.zip
+https://www.inegi.org.mx/contenidos/programas/enoe/15ymas/microdatos/enoe_n_2022_trim4_csv.zip
+https://www.inegi.org.mx/contenidos/programas/enoe/15ymas/microdatos/enoe_n_2022_trim3_csv.zip
+https://www.inegi.org.mx/contenidos/programas/enoe/15ymas/microdatos/enoe_n_2022_trim2_csv.zip
+https://www.inegi.org.mx/contenidos/programas/enoe/15ymas/microdatos/enoe_n_2022_trim1_csv.zip
+
+Es decir, arrojará error para el periodo 2022 y 2024-1T
+
+¿Cómo corregirlo?
+
+En primer lugar, se valida de nueva cuenta dicha ejecución
+
+```{r}
+# datos de entrada
+
+# enlace de los microdatos
+url_actual <- "https://www.inegi.org.mx/contenidos/programas/enoe/15ymas/microdatos/enoe_2026_trim1_csv.zip"
+
+# año
+year_actual <- regmatches(
+  x = url_actual,
+  m = regexpr(
+    pattern = "\\d{4}",
+    text = url_actual
+  )
+)
+
+# número de trimestre
+trimestre_actual <- regmatches(
+  x = url_actual,
+  m = regexpr(
+    pattern = "trim\\d{1}",
+    text = url_actual
+  )
+)
+
+trimestre_actual <- regmatches(
+  x = trimestre_actual,
+  m = regexpr(
+    pattern = "\\d{1}",
+    text = trimestre_actual
+  )
+)
+
+# se definen variables
+year_actual <- as.integer(year_actual)
+year_final <- year_actual - 4
+year <- year_actual
+
+trimestre_actual <- as.integer(trimestre_actual)
+trimestre_final <- trimestre_actual
+trimestre <- trimestre_actual
+
+i <- 1
+tamanio <- trimestre_actual + (4 * 3) + (4 - trimestre_final + 1)
+url <- vector(mode = "character", length = tamanio)
+
+# bucle
+while (year_final <= year) {
+  
+  while (trimestre >= 1) {
+
+    url[[i]] <- sub(
+      pattern = "\\d{4}",
+      replacement = year,
+      x = url_actual
+    )
+
+    url[[i]] <- sub(
+      pattern = "trim\\d{1}",
+      replacement = paste("trim", trimestre, sep = ""),
+      x = url[[i]]
+    )
+    
+    if (year == year_final & trimestre == trimestre_actual) {
+      break
+    } else {
+      trimestre <- trimestre - 1 
+      i <- i + 1
+    }
+  } 
+  
+  trimestre <- 4
+  year <- year - 1
+}
+
+url
+```
+
+El único elemento de entrada es `URL`, por tanto para convertir a función solamente se requiere dicho valor.
+
+Incluso puedo ir un poco más allá y que también se defina el año final. Algo así
+
+```{r}
+# datos de entrada
+
+# enlace de los microdatos
+url_actual <- "https://www.inegi.org.mx/contenidos/programas/enoe/15ymas/microdatos/enoe_2026_trim1_csv.zip"
+
+# año
+year_actual <- regmatches(
+  x = url_actual,
+  m = regexpr(
+    pattern = "\\d{4}",
+    text = url_actual
+  )
+)
+
+# número de trimestre
+trimestre_actual <- regmatches(
+  x = url_actual,
+  m = regexpr(
+    pattern = "trim\\d{1}",
+    text = url_actual
+  )
+)
+
+# número de años
+n_year <- 6
+
+trimestre_actual <- regmatches(
+  x = trimestre_actual,
+  m = regexpr(
+    pattern = "\\d{1}",
+    text = trimestre_actual
+  )
+)
+
+# se definen variables
+year_actual <- as.integer(year_actual)
+year_final <- year_actual - n_year
+year <- year_actual
+
+trimestre_actual <- as.integer(trimestre_actual)
+trimestre_final <- trimestre_actual
+trimestre <- trimestre_actual
+
+i <- 1
+tamanio <- trimestre_actual + ((n_year - 1) * 4) + (4 - trimestre_final + 1)
+url <- vector(mode = "character", length = tamanio)
+
+# bucle
+while (year_final <= year) {
+  
+  while (trimestre >= 1) {
+
+    url[[i]] <- sub(
+      pattern = "\\d{4}",
+      replacement = year,
+      x = url_actual
+    )
+
+    url[[i]] <- sub(
+      pattern = "trim\\d{1}",
+      replacement = paste("trim", trimestre, sep = ""),
+      x = url[[i]]
+    )
+    
+    if (year == year_final & trimestre == trimestre_actual) {
+      break
+    } else {
+      trimestre <- trimestre - 1 
+      i <- i + 1
+    }
+  } 
+  
+  trimestre <- 4
+  year <- year - 1
+}
+
+url
+```
+
+Listo!!!
+
+Se dejan las dos para el script correspondiente. 
+
+La siguiente función solamente considera un periodo de cuatro años:
+
+```{r}
+obtener_enlaces <- function(url_actual) 
+{
+  # datos de entrada -----
+  
+  # año
+  year_actual <- regmatches(
+    x = url_actual,
+    m = regexpr(
+      pattern = "\\d{4}",
+      text = url_actual
+    )
+  )
+  
+  # número de trimestre
+  trimestre_actual <- regmatches(
+    x = url_actual,
+    m = regexpr(
+      pattern = "trim\\d{1}",
+      text = url_actual
+    )
+  )
+  
+  trimestre_actual <- regmatches(
+    x = trimestre_actual,
+    m = regexpr(
+      pattern = "\\d{1}",
+      text = trimestre_actual
+    )
+  )
+  
+  # resto de variables
+  year_actual <- as.integer(year_actual)
+  year_final <- year_actual - 4
+  year <- year_actual
+  
+  trimestre_actual <- as.integer(trimestre_actual)
+  trimestre_final <- trimestre_actual
+  trimestre <- trimestre_actual
+  
+  i <- 1
+  tamanio <- trimestre_actual + (4 * 3) + (4 - trimestre_final + 1)
+  url <- vector(mode = "character", length = tamanio)
+  
+  # bucle -----
+  while (year_final <= year) {
+    
+    while (trimestre >= 1) {
+  
+      url[[i]] <- sub(
+        pattern = "\\d{4}",
+        replacement = year,
+        x = url_actual
+      )
+  
+      url[[i]] <- sub(
+        pattern = "trim\\d{1}",
+        replacement = paste("trim", trimestre, sep = ""),
+        x = url[[i]]
+      )
+      
+      if (year == year_final & trimestre == trimestre_actual) {
+        break
+      } else {
+        trimestre <- trimestre - 1 
+        i <- i + 1
+      }
+    } 
+    
+    trimestre <- 4
+    year <- year - 1
+  }
+  
+  return(url)
+}
+```
+
+Mientras que la siguiente función para un número de periodos que el usuario especifique
+
+```{r}
+obtener_enlaces_year <- function(url_actual, n_year)
+{
+  # datos de entrada -----
+  
+  # año
+  year_actual <- regmatches(
+    x = url_actual,
+    m = regexpr(
+      pattern = "\\d{4}",
+      text = url_actual
+    )
+  )
+  
+  # número de trimestre
+  trimestre_actual <- regmatches(
+    x = url_actual,
+    m = regexpr(
+      pattern = "trim\\d{1}",
+      text = url_actual
+    )
+  )
+  
+  trimestre_actual <- regmatches(
+    x = trimestre_actual,
+    m = regexpr(
+      pattern = "\\d{1}",
+      text = trimestre_actual
+    )
+  )
+  
+  # resto de variables
+  year_actual <- as.integer(year_actual)
+  year_final <- year_actual - n_year
+  year <- year_actual
+  
+  trimestre_actual <- as.integer(trimestre_actual)
+  trimestre_final <- trimestre_actual
+  trimestre <- trimestre_actual
+  
+  i <- 1
+  tamanio <- trimestre_actual + ((n_year - 1) * 4) + (4 - trimestre_final + 1)
+  url <- vector(mode = "character", length = tamanio)
+  
+  # bucle -----
+  while (year_final <= year) {
+    
+    while (trimestre >= 1) {
+  
+      url[[i]] <- sub(
+        pattern = "\\d{4}",
+        replacement = year,
+        x = url_actual
+      )
+  
+      url[[i]] <- sub(
+        pattern = "trim\\d{1}",
+        replacement = paste("trim", trimestre, sep = ""),
+        x = url[[i]]
+      )
+      
+      if (year == year_final & trimestre == trimestre_actual) {
+        break
+      } else {
+        trimestre <- trimestre - 1 
+        i <- i + 1
+      }
+    } 
+    
+    trimestre <- 4
+    year <- year - 1
+  }
+  
+  return(url)
+}
+```
+
+Se validan ambas funciones
+
+```{r}
+obtener_enlaces("https://www.inegi.org.mx/contenidos/programas/enoe/15ymas/microdatos/enoe_2026_trim1_csv.zip")
+```
+
+Correcto!
+
+```{r}
+obtener_enlaces_year(
+  url_actual = "https://www.inegi.org.mx/contenidos/programas/enoe/15ymas/microdatos/enoe_2026_trim1_csv.zip",
+  n_year = 4
+)
+```
+
+Correcto!
+
+Definamos un objeto con dichos valores
+
+```{r}
+url <- obtener_enlaces("https://www.inegi.org.mx/contenidos/programas/enoe/15ymas/microdatos/enoe_2026_trim1_csv.zip")
+```
+
+
+Los enlaces oficiales del periodo esbozado son los siguientes:
+
+https://www.inegi.org.mx/contenidos/programas/enoe/15ymas/microdatos/enoe_2026_trim1_csv.zip
+https://www.inegi.org.mx/contenidos/programas/enoe/15ymas/microdatos/enoe_2025_trim4_csv.zip
+https://www.inegi.org.mx/contenidos/programas/enoe/15ymas/microdatos/enoe_2025_trim3_csv.zip
+https://www.inegi.org.mx/contenidos/programas/enoe/15ymas/microdatos/enoe_2025_trim2_csv.zip
+https://www.inegi.org.mx/contenidos/programas/enoe/15ymas/microdatos/enoe_2025_trim1_csv.zip
+https://www.inegi.org.mx/contenidos/programas/enoe/15ymas/microdatos/enoe_2024_trim4_csv.zip
+https://www.inegi.org.mx/contenidos/programas/enoe/15ymas/microdatos/enoe_2024_trim3_csv.zip
+https://www.inegi.org.mx/contenidos/programas/enoe/15ymas/microdatos//enoe_2024_trim2_csv.zip
+https://www.inegi.org.mx/contenidos/programas/enoe/15ymas/microdatos/enoe_2024_trim1_csv.zip
+https://www.inegi.org.mx/contenidos/programas/enoe/15ymas/microdatos/enoe_2023_trim4_csv.zip
+https://www.inegi.org.mx/contenidos/programas/enoe/15ymas/microdatos/enoe_2023_trim3_csv.zip
+https://www.inegi.org.mx/contenidos/programas/enoe/15ymas/microdatos/enoe_2023_trim2_csv.zip
+https://www.inegi.org.mx/contenidos/programas/enoe/15ymas/microdatos/enoe_2023_trim1_csv.zip
+https://www.inegi.org.mx/contenidos/programas/enoe/15ymas/microdatos/enoe_n_2022_trim4_csv.zip
+https://www.inegi.org.mx/contenidos/programas/enoe/15ymas/microdatos/enoe_n_2022_trim3_csv.zip
+https://www.inegi.org.mx/contenidos/programas/enoe/15ymas/microdatos/enoe_n_2022_trim2_csv.zip
+https://www.inegi.org.mx/contenidos/programas/enoe/15ymas/microdatos/enoe_n_2022_trim1_csv.zip
+
+Mientras que las ligas generadas son:
+
+```{r}
+url
+```
+
+Puede resultar con `switch` o con `sub`. Intentemos con `sub`
+
+```{r}
+grepv(
+ x = url,
+ pattern = "/enoe_2024_trim2"
+)
+```
+
+Se cambia
+
+```{r}
+sub(
+  x = url,
+  pattern = "/enoe_2024_trim2",
+  replacement = "//enoe_2024_trim2"
+)
+```
+
+Listo! 
+
+Para el caso de 2022
+
+```{r}
+grepv(
+  x = url,
+  pattern = "enoe_2022"
+)
+```
+
+Se cambia 
+
+```{r}
+sub(
+  x = url,
+  pattern = "enoe_2022",
+  replacement = "enoe_n_2022"
+)
+```
+
+Listo!
+
+Se añade a la función
+
+```{r}
+obtener_enlaces <- function(url_actual) 
+{
+  # datos de entrada -----
+  
+  # año
+  year_actual <- regmatches(
+    x = url_actual,
+    m = regexpr(
+      pattern = "\\d{4}",
+      text = url_actual
+    )
+  )
+  
+  # número de trimestre
+  trimestre_actual <- regmatches(
+    x = url_actual,
+    m = regexpr(
+      pattern = "trim\\d{1}",
+      text = url_actual
+    )
+  )
+  
+  trimestre_actual <- regmatches(
+    x = trimestre_actual,
+    m = regexpr(
+      pattern = "\\d{1}",
+      text = trimestre_actual
+    )
+  )
+  
+  # resto de variables
+  year_actual <- as.integer(year_actual)
+  year_final <- year_actual - 4
+  year <- year_actual
+  
+  trimestre_actual <- as.integer(trimestre_actual)
+  trimestre_final <- trimestre_actual
+  trimestre <- trimestre_actual
+  
+  i <- 1
+  tamanio <- trimestre_actual + (4 * 3) + (4 - trimestre_final + 1)
+  url <- vector(mode = "character", length = tamanio)
+  
+  # bucle -----
+  while (year_final <= year) {
+    
+    while (trimestre >= 1) {
+  
+      url[[i]] <- sub(
+        pattern = "\\d{4}",
+        replacement = year,
+        x = url_actual
+      )
+  
+      url[[i]] <- sub(
+        pattern = "trim\\d{1}",
+        replacement = paste("trim", trimestre, sep = ""),
+        x = url[[i]]
+      )
+      
+      if (year == year_final & trimestre == trimestre_actual) {
+        break
+      } else {
+        trimestre <- trimestre - 1 
+        i <- i + 1
+      }
+    } 
+    
+    trimestre <- 4
+    year <- year - 1
+  }
+  
+  # para que coincida con el enlace oficial de ENOE 2T-2024
+  url <- sub(
+    x = url,
+    pattern = "/enoe_2024_trim2",
+    replacement = "//enoe_2024_trim2"
+  )
+  
+  # para que coincida con el enlace oficial de ENOE 2022
+  url <- sub(
+    x = url,
+    pattern = "enoe_2022",
+    replacement = "enoe_n_2022"
+  )
+  
+  return(url)
+}
+```
+
+Se valida
+
+```{r}
+obtener_enlaces("https://www.inegi.org.mx/contenidos/programas/enoe/15ymas/microdatos/enoe_2026_trim1_csv.zip")
+```
+
+Listo!
+
+En el caso de la otra función
+
+```{r}
+obtener_enlaces_year <- function(url_actual, n_year)
+{
+  # datos de entrada -----
+  
+  # año
+  year_actual <- regmatches(
+    x = url_actual,
+    m = regexpr(
+      pattern = "\\d{4}",
+      text = url_actual
+    )
+  )
+  
+  # número de trimestre
+  trimestre_actual <- regmatches(
+    x = url_actual,
+    m = regexpr(
+      pattern = "trim\\d{1}",
+      text = url_actual
+    )
+  )
+  
+  trimestre_actual <- regmatches(
+    x = trimestre_actual,
+    m = regexpr(
+      pattern = "\\d{1}",
+      text = trimestre_actual
+    )
+  )
+  
+  # resto de variables
+  year_actual <- as.integer(year_actual)
+  year_final <- year_actual - n_year
+  year <- year_actual
+  
+  trimestre_actual <- as.integer(trimestre_actual)
+  trimestre_final <- trimestre_actual
+  trimestre <- trimestre_actual
+  
+  i <- 1
+  tamanio <- trimestre_actual + ((n_year - 1) * 4) + (4 - trimestre_final + 1)
+  url <- vector(mode = "character", length = tamanio)
+  
+  # bucle -----
+  while (year_final <= year) {
+    
+    while (trimestre >= 1) {
+  
+      url[[i]] <- sub(
+        pattern = "\\d{4}",
+        replacement = year,
+        x = url_actual
+      )
+  
+      url[[i]] <- sub(
+        pattern = "trim\\d{1}",
+        replacement = paste("trim", trimestre, sep = ""),
+        x = url[[i]]
+      )
+      
+      if (year == year_final & trimestre == trimestre_actual) {
+        break
+      } else {
+        trimestre <- trimestre - 1 
+        i <- i + 1
+      }
+    } 
+    
+    trimestre <- 4
+    year <- year - 1
+  }
+  
+  # para que coincida con el enlace oficial de ENOE 2T-2024
+  url <- sub(
+    x = url,
+    pattern = "/enoe_2024_trim2",
+    replacement = "//enoe_2024_trim2"
+  )
+  
+  # para que coincida con el enlace oficial de ENOE 2022
+  url <- sub(
+    x = url,
+    pattern = "enoe_2022",
+    replacement = "enoe_n_2022"
+  )
+  
+  return(url)
+}
+```
+
+
+Se valida
+
+```{r}
+obtener_enlaces_year(
+  url_actual = "https://www.inegi.org.mx/contenidos/programas/enoe/15ymas/microdatos/enoe_2026_trim1_csv.zip",
+  n_year = 4
+)
+```
+
+El único tema es cuando el número de periodos es mayor a 4
+
+```{r}
+obtener_enlaces_year(
+  url_actual = "https://www.inegi.org.mx/contenidos/programas/enoe/15ymas/microdatos/enoe_2026_trim1_csv.zip",
+  n_year = 6
+)
+```
+
+Se desconoce qué sintaxis presentan los enlaces de los microdatos previos a 2022. Por ejemplo, el enlace de ENOE 1T-2020 es:
+
+<https://www.inegi.org.mx/contenidos/programas/enoe/15ymas/microdatos/2020trim1_csv.zip>
+
+De ENOE 1T-2021
+
+<https://www.inegi.org.mx/contenidos/programas/enoe/15ymas/microdatos/enoe_n_2021_trim1_csv.zip>
+
+De ENOE 1T-2019
+
+<https://www.inegi.org.mx/contenidos/programas/enoe/15ymas/microdatos/2019trim1_csv.zip>
+
+Esa cuestión se deja para futuras actualizaciones o expansiones.
 
