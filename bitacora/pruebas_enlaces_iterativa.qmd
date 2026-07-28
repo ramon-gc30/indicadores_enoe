@@ -1,0 +1,1951 @@
+---
+date: "27-07-2026"
+format: gfm
+---
+
+Se valida la aplicabilidad de las funciones que obtienen los enlaces de los microdatos de la ENOE de periodos previos
+
+```{r}
+#| label: setup
+#| message: false
+#| warning: false
+
+library(tidyverse)
+library(here)
+
+source(here::here("scripts", "0_funciones_v3-1.R"))
+```
+
+El enlace del periodo actual es
+
+```{r}
+url <- "https://www.inegi.org.mx/contenidos/programas/enoe/15ymas/microdatos/enoe_2026_trim1_csv.zip"
+```
+
+Por tanto, los enlaces previos son
+
+```{r}
+url <- obtener_enlaces(url)
+
+url
+```
+
+Ahora bien,
+
+¿cómo descargarlos? Necesitaría
+
+1. Crear los n archivos temporales
+
+```{r}
+tempfile(fileext = ".zip")
+```
+
+De forma iterativa
+
+```{r}
+i <- vector(mode = "integer", length = length(url))
+archivos_temp <- vector(mode = "character", length = length(url))
+
+for (i in 1:length(url)) {
+  archivos_temp[[i]] <- tempfile(fileext = ".zip")
+}
+```
+
+Se valida
+
+```{r}
+archivos_temp
+```
+
+Vamos a validar una descarga 
+
+```{r}
+options(timeout = max(900, getOption("timeout")))
+
+download.file(
+  url = url[[8]],
+  destfile = archivos_temp[[8]]
+)
+```
+
+Se valida
+
+```{r}
+unzip(
+  zipfile = archivos_temp[[8]],
+  list = TRUE
+)
+```
+
+Sí están descargados
+
+La pregunta es ¿se podrá hacer de forma iterativa?
+
+Se valida
+
+```{r}
+# options(timeout = max(900, getOption("timeout")))
+
+i <- vector(mode = "integer", length = length(url))
+
+for (i in 1:length(url)) {
+  download.file(
+    url = url[[i]],
+    destfile = archivos_temp[[i]]
+  )
+}
+```
+
+Listo!
+
+Se valida
+
+```{r}
+unzip(
+  zipfile = archivos_temp[[1]],
+  list = TRUE
+)
+```
+
+Para extraer solamente los módulos SDEM
+
+```{r}
+unzip(
+  zipfile = archivos_temp[[1]],
+  list = TRUE,
+  files = grepv("sdem", archivos_temp, ignore.case = TRUE)
+)
+```
+
+No hace el filtro, muestra todos los archivos
+
+Se hace un juego
+
+```{r}
+archivos_temp
+```
+
+```{r}
+file_zip <- archivos_temp[[1]]
+
+file_zip
+
+unzip(
+  zipfile = file_zip,
+  list = TRUE,
+  files = grepv(
+    x = file_zip,
+    pattern = "sdem",
+    ignore.case = TRUE
+  )
+)$Name
+```
+
+Regresamos a nuestro ejemplo
+
+```{r}
+unzip(
+  zipfile = archivos_temp[[1]],
+  list = TRUE,
+  files = grepv("sdem", archivos_temp[[1]], ignore.case = TRUE)
+)$Name
+```
+
+El argumento `files` cuando solamente se enlistan los archivos, no sirve para filtrar cuando es solamente visualización. Se necesita saber si `files` extrae solamente el archivo especificado, se valida
+
+```{r}
+unzip(
+  zipfile = archivos_temp[[1]],
+  list = FALSE,
+  files = grepv("sdem", archivos_temp[[1]], ignore.case = TRUE),
+  exdir = tempdir(),
+  overwrite = TRUE
+)
+```
+
+Se valida
+
+```{r}
+list.files(
+  path = tempdir(),
+  pattern = "\\.csv",
+  full.names = TRUE
+)
+```
+
+Ya sé porque extrae todos, porque no está un objeto que contenga los archivos dentro del archivo zip. Se eliminan archivos extraídos y se vuelve a ejecutar
+
+```{r}
+unlink(
+  list.files(
+    path = tempdir(),
+    pattern = "\\.csv",
+    full.names = TRUE
+  )
+)
+```
+
+Se valida eliminación
+
+```{r}
+list.files(
+  path = tempdir(),
+  # pattern = "\\.csv",
+  full.names = TRUE
+)
+```
+
+Ya están eliminados
+
+```{r}
+unzip(
+  zipfile = archivos_temp[[1]],
+  list = TRUE,
+  files = grepv("sdem", archivos_temp[[1]], ignore.case = TRUE)
+)$Name
+```
+
+De aquí se crea el objeto que contiene los archivos dentro del archivo zip
+
+```{r}
+modulo <- unzip(
+  zipfile = archivos_temp[[1]],
+  list = TRUE,
+  # files = grepv("sdem", archivos_temp[[1]], ignore.case = TRUE)
+)$Name
+
+modulo
+```
+
+Ahora sí, se vuelve a extraer
+
+```{r}
+unzip(
+  zipfile = archivos_temp[[1]],
+  list = FALSE,
+  files = grepv("sdem", modulo, ignore.case = TRUE),
+  exdir = tempdir(),
+  overwrite = TRUE
+)
+```
+
+Se valida
+
+```{r}
+list.files(
+  path = tempdir(),
+  pattern = "\\.csv",
+  full.names = TRUE
+)
+```
+
+Listo!
+
+Ahora ¿cómo se itera dicho procedimiento?
+
+Ya se tiene el vector que contiene los archivos descargados 
+
+```{r}
+archivos_temp
+```
+
+Necesitamos un vector que contenga los archivos comprimidos
+
+```{r}
+modulo <- unzip(
+  zipfile = archivos_temp[[1]],
+  list = TRUE,
+)$Name
+
+modulo
+```
+
+Y el procedimiento de extracción
+
+```{r}
+unzip(
+  zipfile = archivos_temp[[1]],
+  list = FALSE,
+  files = grepv("sdem", modulo, ignore.case = TRUE),
+  exdir = tempdir(),
+  overwrite = TRUE
+)
+```
+
+No necesito iterar `modulo` solamente la posición del vector. El código quedaría así
+
+```{{r}}
+tamanio <- length(archivos_temp)
+i <- vector(mode = "integer", length = tamanio)
+
+
+for (i in 1:tamanio) {
+  
+  modulo <- unzip(
+    zipfile = archivos_temp[[i]],
+    list = TRUE,
+  )$Name
+  
+  unzip(
+    zipfile = archivos_temp[[i]],
+    list = FALSE,
+    files = grepv("sdem", modulo, ignore.case = TRUE),
+    exdir = tempdir(),
+    overwrite = TRUE
+  )
+}
+```
+
+Se valida
+
+```{r}
+tamanio <- length(archivos_temp)
+i <- vector(mode = "integer", length = tamanio)
+
+
+for (i in 1:tamanio) {
+  
+  modulo <- unzip(
+    zipfile = archivos_temp[[i]],
+    list = TRUE,
+  )$Name
+  
+  unzip(
+    zipfile = archivos_temp[[i]],
+    list = FALSE,
+    files = grepv("sdem", modulo, ignore.case = TRUE),
+    exdir = tempdir(),
+    overwrite = TRUE
+  )
+}
+```
+
+Se valida
+
+```{r}
+list.files(
+  path = tempdir(),
+  pattern = "\\.csv",
+  full.names = TRUE
+)
+```
+
+Listo!
+
+En resumen, el código sería el siguiente
+
+```{r}
+# obtener enlaces ----
+url <- "https://www.inegi.org.mx/contenidos/programas/enoe/15ymas/microdatos/enoe_2026_trim1_csv.zip"
+
+url <- obtener_enlaces_year(url, 1)
+
+# crear archivos temporales -----
+
+i <- vector(mode = "integer", length = length(url))
+archivos_temp <- vector(mode = "character", length = length(url))
+
+for (i in 1:length(url)) {
+  archivos_temp[[i]] <- tempfile(fileext = ".zip")
+}
+
+# descargar microdatos -----
+
+options(timeout = max(900, getOption("timeout")))
+
+i <- vector(mode = "integer", length = length(url))
+
+for (i in 1:length(url)) {
+  download.file(
+    url = url[[i]],
+    destfile = archivos_temp[[i]]
+  )
+}
+
+# extraer módulo SDEM -----
+
+tamanio <- length(archivos_temp)
+i <- vector(mode = "integer", length = tamanio)
+
+
+for (i in 1:tamanio) {
+  
+  modulo <- unzip(
+    zipfile = archivos_temp[[i]],
+    list = TRUE,
+  )$Name
+  
+  unzip(
+    zipfile = archivos_temp[[i]],
+    list = FALSE,
+    files = grepv("sdem", modulo, ignore.case = TRUE),
+    exdir = tempdir(),
+    overwrite = TRUE
+  )
+}
+
+# validar -----
+
+list.files(
+  path = tempdir(),
+  pattern = "\\.csv",
+  full.names = TRUE
+)
+
+# eliminar archivos comprimidos -----
+
+unlink(
+  list.files(
+    path = tempdir(),
+    pattern = "\\.zip",
+    full.names = TRUE
+  )
+)
+```
+
+Se valida eliminación
+
+```{r}
+list.files(
+    path = tempdir(),
+    # pattern = "\\.zip",
+    full.names = TRUE
+  )
+```
+
+Listo!!!
+
+Se añade `tamanio`
+
+```{r}
+# obtener enlaces ----
+url <- "https://www.inegi.org.mx/contenidos/programas/enoe/15ymas/microdatos/enoe_2026_trim1_csv.zip"
+
+url <- obtener_enlaces_year(url, 1)
+
+# crear archivos temporales -----
+
+tamanio <- length(url)
+i <- vector(mode = "integer", length = tamanio)
+archivos_temp <- vector(mode = "character", length = tamanio)
+
+for (i in 1:tamanio) {
+  archivos_temp[[i]] <- tempfile(fileext = ".zip")
+}
+
+# descargar microdatos -----
+
+options(timeout = max(900, getOption("timeout")))
+
+i <- vector(mode = "integer", length = tamanio)
+
+for (i in 1:tamanio) {
+  download.file(
+    url = url[[i]],
+    destfile = archivos_temp[[i]]
+  )
+}
+
+# extraer módulo SDEM -----
+
+tamanio <- length(archivos_temp)
+i <- vector(mode = "integer", length = tamanio)
+
+
+for (i in 1:tamanio) {
+  
+  modulo <- unzip(
+    zipfile = archivos_temp[[i]],
+    list = TRUE,
+  )$Name
+  
+  unzip(
+    zipfile = archivos_temp[[i]],
+    list = FALSE,
+    files = grepv("sdem", modulo, ignore.case = TRUE),
+    exdir = tempdir(),
+    overwrite = TRUE
+  )
+}
+
+# eliminar archivos comprimidos -----
+
+unlink(
+  list.files(
+    path = tempdir(),
+    pattern = "\\.zip",
+    full.names = TRUE
+  )
+)
+
+# validar -----
+
+list.files(
+  path = tempdir(),
+  pattern = "\\.csv",
+  full.names = TRUE
+)
+```
+
+Listo!!!
+
+```{r}
+archivos_extraidos <- list.files(
+  path = tempdir(),
+  pattern = "\\.csv",
+  full.names = TRUE
+)
+
+archivos_extraidos
+```
+
+```{{r}}
+sdem_years <- read_csv(
+  file = archivos_extraidos,
+  col_select = 1:5,
+  col_types = cols(.default = col_character()),
+  id = "file"
+)
+```
+
+```
+Error: Files must all have 114 columns:
+i File 2 has 115 columns.
+```
+
+```{r}
+basename(archivos_extraidos)
+```
+
+```{r}
+sub(
+  x = archivos_extraidos,
+  pattern = "\\.csv",
+  replacement = ""
+)
+
+sub(
+  x = archivos_extraidos,
+  pattern = "ENOE_",
+  replacement = ""
+)
+```
+
+ls; object; get; assign
+
+```{r}
+assign(
+  x = "ejemplo",
+  value = 1
+)
+
+base::ls(pattern = "ejemplo")
+```
+
+```{r}
+tolower(archivos_extraidos)
+```
+
+```{r}
+sub(
+  x = archivos_extraidos,
+  pattern = "SDEMT",
+  replacement = "sdem_t"
+)
+```
+
+```{r}
+assign(
+  x = "ejemplo",
+  value = read_csv(
+    archivos_extraidos[[1]],
+    col_select = 1:5,
+    col_types = cols(.default = col_character())
+  )
+)
+```
+
+```{r}
+glimpse(ejemplo)
+```
+
+Entonces
+
+```{r}
+nombre_archivo <- basename(archivos_extraidos)
+
+nombre_archivo <- sub(
+  x = nombre_archivo,
+  pattern = "\\.csv",
+  replacement = ""
+)
+
+nombre_archivo <- sub(
+  x = nombre_archivo,
+  pattern = "ENOE_",
+  replacement = ""
+)
+
+nombre_archivo <- tolower(nombre_archivo)
+
+nombre_archivo
+```
+
+Así
+
+```{r}
+nombre_archivo
+archivos_extraidos
+```
+
+
+```{r}
+assign(
+  x = nombre_archivo[[1]],
+  value = read_csv(
+    archivos_extraidos[[1]],
+    col_select = 1:5,
+    col_types = cols(.default = col_character())
+  )
+)
+```
+
+```{r}
+glimpse(get(nombre_archivo[[1]]))
+```
+
+```{r}
+# ruta
+archivos_extraidos <- list.files(
+  path = tempdir(),
+  pattern = "\\.csv",
+  full.names = TRUE
+)
+
+# nombre
+nombre_archivo <- basename(archivos_extraidos)
+
+nombre_archivo <- sub(
+  x = nombre_archivo,
+  pattern = "\\.csv",
+  replacement = ""
+)
+
+nombre_archivo <- sub(
+  x = nombre_archivo,
+  pattern = "ENOE_",
+  replacement = ""
+)
+
+nombre_archivo <- tolower(nombre_archivo)
+
+# cargar
+tamanio <- length(archivos_extraidos)
+i <- vector(mode = "integer", length = tamanio)
+
+for (i in 1:tamanio) {
+  assign(
+    x = nombre_archivo[[i]],
+    value = read_csv(
+      file = archivos_extraidos[[i]],
+      col_types = cols(.default = col_character())
+    )
+  )
+}
+
+```
+
+Se valida
+
+```{r}
+base::ls(
+  pattern = "sdem"
+)
+```
+
+Listo!
+
+list2env .GlobalEnv; zeallot
+
+```{r}
+nombre_archivo
+
+sdem_year <- list(get(nombre_archivo[[1]]))
+
+names(sdem_year)
+
+# sdem_year
+```
+
+```{{r}}
+nombre_archivo[[1]]
+
+sdem_year <- list(
+    nombre_archivo[[1]] = get(nombre_archivo[[1]])
+  )
+
+names(sdem_year)
+```
+
+```
+Error: inesperado '=' in:
+"sdem_year <- list(
+    nombre_archivo[[1]] ="
+```
+
+
+
+```{r}
+nombre_archivo[[1]]
+
+sdem_year <- list(
+    "sdemt125" = get(nombre_archivo[[1]])
+  )
+
+names(sdem_year)
+```
+
+```{r}
+nombre_archivo[[1]]
+
+sdem_year <- as.list(
+    get(nombre_archivo[[1]])
+  )
+
+names(sdem_year)
+```
+
+```{r}
+nombre_archivo[[1]]
+
+sdem_year <- as.list(
+    get(nombre_archivo[[1]]),
+    get(nombre_archivo[[2]]),
+  )
+
+names(sdem_year)
+```
+
+```{r}
+nombre_archivo[[1]]
+
+sdem_year <- alist(
+    get(nombre_archivo[[1]])
+  )
+
+names(sdem_year)
+```
+
+```{{r}}
+nombre_archivo[[1]]
+
+sdem_year <- pairlist(
+    nombre_archivo[[1]] = get(nombre_archivo[[1]])
+  )
+
+names(sdem_year)
+```
+
+```
+Error: inesperado '=' in:
+"sdem_year <- pairlist(
+    nombre_archivo[[1]] ="
+```
+
+```{r}
+nombre_archivo[[1]]
+
+sdem_year <- as.list(
+    sdemt125
+  )
+
+names(sdem_year)
+```
+
+```{r}
+objects(pattern = "sdem")
+```
+
+```{r}
+names(.GlobalEnv)
+```
+
+```{r}
+nombre_archivo[[1]]
+
+nombre <- nombre_archivo[[1]]
+
+sdem_year <- list(
+    nombre = get(nombre_archivo[[1]])
+  )
+
+names(sdem_year)
+```
+
+Resumen
+
+```{r}
+# obtener enlaces ----
+url <- "https://www.inegi.org.mx/contenidos/programas/enoe/15ymas/microdatos/enoe_2026_trim1_csv.zip"
+
+url <- obtener_enlaces_year(url, 1)
+
+# crear archivos temporales -----
+
+tamanio <- length(url)
+i <- vector(mode = "integer", length = tamanio)
+archivos_temp <- vector(mode = "character", length = tamanio)
+
+for (i in 1:tamanio) {
+  archivos_temp[[i]] <- tempfile(fileext = ".zip")
+}
+
+# descargar microdatos -----
+
+options(timeout = max(900, getOption("timeout")))
+
+i <- vector(mode = "integer", length = tamanio)
+
+for (i in 1:tamanio) {
+  download.file(
+    url = url[[i]],
+    destfile = archivos_temp[[i]]
+  )
+}
+
+# extraer módulo SDEM -----
+
+tamanio <- length(archivos_temp)
+i <- vector(mode = "integer", length = tamanio)
+
+
+for (i in 1:tamanio) {
+  
+  modulo <- unzip(
+    zipfile = archivos_temp[[i]],
+    list = TRUE,
+  )$Name
+  
+  unzip(
+    zipfile = archivos_temp[[i]],
+    list = FALSE,
+    files = grepv("sdem", modulo, ignore.case = TRUE),
+    exdir = tempdir(),
+    overwrite = TRUE
+  )
+}
+
+# eliminar archivos comprimidos -----
+
+unlink(
+  list.files(
+    path = tempdir(),
+    pattern = "\\.zip",
+    full.names = TRUE
+  )
+)
+
+# carga -----
+
+# ruta
+archivos_extraidos <- list.files(
+  path = tempdir(),
+  pattern = "\\.csv",
+  full.names = TRUE
+)
+
+# nombre
+nombre_archivo <- basename(archivos_extraidos)
+
+nombre_archivo <- sub(
+  x = nombre_archivo,
+  pattern = "\\.csv",
+  replacement = ""
+)
+
+nombre_archivo <- sub(
+  x = nombre_archivo,
+  pattern = "ENOE_",
+  replacement = ""
+)
+
+nombre_archivo <- tolower(nombre_archivo)
+
+# cargar
+tamanio <- length(archivos_extraidos)
+i <- vector(mode = "integer", length = tamanio)
+
+for (i in 1:tamanio) {
+  assign(
+    x = nombre_archivo[[i]],
+    value = read_csv(
+      file = archivos_extraidos[[i]],
+      col_types = cols(.default = col_character())
+    )
+  )
+}
+```
+
+La pregunta es ¿cómo crear la lista poniendo nombre a cada elemento?
+
+La IA sugiere `lapply` y `setNames` que establece un nombre a un objeto especificado
+
+```{r}
+setNames(1:2, c("1", "2"))
+```
+
+Por un lado, `?lapply` aplica una función a un objeto en específico y lo devuelve en forma de lista; mientras que `eapply` que aplica una función a los elementos especificados de un entorno de trabajo y lo devuelve en forma de lista.
+
+Lo otro sería trabajar con cada módulo y aplicar `map`/`walk`.
+
+Al leer la sección 26.3.4 de R for data science (2a ed): <https://davidrsch.github.io/r4ds-es/iteration.html>, los autores mencionan que:
+
+```{{r}}
+files <- paths |> 
+  set_names(basename) |> 
+  map(readxl::read_excel)
+```
+
+Eso hace que esta llamada a `map()` sea abreviada para:
+
+```{{r}}
+files <- list(
+  "1952.xlsx" = readxl::read_excel("data/gapminder/1952.xlsx"),
+  "1957.xlsx" = readxl::read_excel("data/gapminder/1957.xlsx"),
+  "1962.xlsx" = readxl::read_excel("data/gapminder/1962.xlsx"),
+  ...,
+  "2007.xlsx" = readxl::read_excel("data/gapminder/2007.xlsx")
+)
+```
+
+Recordemos que `map` retorna siempre una lista.
+
+```{r}
+nombre_archivo
+
+setNames(nombre_archivo, nombre_archivo)
+```
+
+Aquello podría reemplazar 
+
+```{{r}}
+# cargar
+tamanio <- length(archivos_extraidos)
+i <- vector(mode = "integer", length = tamanio)
+
+for (i in 1:tamanio) {
+  assign(
+    x = nombre_archivo[[i]],
+    value = read_csv(
+      file = archivos_extraidos[[i]],
+      col_types = cols(.default = col_character())
+    )
+  )
+}
+```
+
+Se realiza intento
+
+```{r}
+archivos_extraidos
+
+archivos_extraidos |> 
+  set_names(basename) |> 
+  map( \(archivos_extraidos) 
+    readr::read_csv(archivos_extraidos, col_types = cols(.default = col_character()))
+  )
+```
+
+Sí fue posible!!! OMG
+
+Recuerda que no se puede unir a un solo conjunto de datos
+
+DUDA
+
+```{r}
+# nombre_archivo
+# archivos_extraidos
+
+enoe_year <- archivos_extraidos |> 
+  set_names(nm = nombre_archivo) |> 
+  map( \(archivos_extraidos) 
+    readr::read_csv(archivos_extraidos, col_types = cols(.default = col_character()))
+  )
+
+names(enoe_year)
+```
+
+OMG!!!!
+
+```{r}
+enoe_year$sdemt125
+```
+
+Entonces, puede ser así
+
+```{{r}}
+# cargar
+tamanio <- length(archivos_extraidos)
+i <- vector(mode = "integer", length = tamanio)
+
+for (i in 1:tamanio) {
+  assign(
+    x = nombre_archivo[[i]],
+    value = read_csv(
+      file = archivos_extraidos[[i]],
+      col_types = cols(.default = col_character())
+    )
+  )
+}
+```
+
+O bien
+
+```{{r}}
+enoe_year <- archivos_extraidos |> 
+  set_names(nm = nombre_archivo) |> 
+  map( \(archivos_extraidos) 
+    readr::read_csv(archivos_extraidos, col_types = cols(.default = col_character()))
+  )
+
+names(enoe_year)
+```
+
+¿Qué diferencia tiene cada uno?
+
+El primero crea crear n objetos según el número de archivos a cargar. Mientras que, el segundo contiene todos los archivos en una lista nombrados según el tipo de módulo, trimestre y año.
+
+A priori, ninguna es mejor o peor; ambos pueden utilizarse. El primero puede emplearse para un flujo de trabajo que procese los datos, mientras que el segundo para integrarlo a una función.
+
+Por tanto, 
+
+```{r}
+# obtener enlaces ----
+url <- "https://www.inegi.org.mx/contenidos/programas/enoe/15ymas/microdatos/enoe_2026_trim1_csv.zip"
+
+url <- obtener_enlaces_year(url, 1)
+
+# crear archivos temporales -----
+
+tamanio <- length(url)
+i <- vector(mode = "integer", length = tamanio)
+archivos_temp <- vector(mode = "character", length = tamanio)
+
+for (i in 1:tamanio) {
+  archivos_temp[[i]] <- tempfile(fileext = ".zip")
+}
+
+# descargar microdatos -----
+
+options(timeout = max(900, getOption("timeout")))
+
+i <- vector(mode = "integer", length = tamanio)
+
+for (i in 1:tamanio) {
+  download.file(
+    url = url[[i]],
+    destfile = archivos_temp[[i]]
+  )
+}
+
+# extraer módulo SDEM -----
+
+tamanio <- length(archivos_temp)
+i <- vector(mode = "integer", length = tamanio)
+
+
+for (i in 1:tamanio) {
+  
+  modulo <- unzip(
+    zipfile = archivos_temp[[i]],
+    list = TRUE,
+  )$Name
+  
+  unzip(
+    zipfile = archivos_temp[[i]],
+    list = FALSE,
+    files = grepv("sdem", modulo, ignore.case = TRUE),
+    exdir = tempdir(),
+    overwrite = TRUE
+  )
+}
+
+# eliminar archivos comprimidos -----
+
+unlink(
+  list.files(
+    path = tempdir(),
+    pattern = "\\.zip",
+    full.names = TRUE
+  )
+)
+
+# carga -----
+
+# ruta
+archivos_extraidos <- list.files(
+  path = tempdir(),
+  pattern = "\\.csv",
+  full.names = TRUE
+)
+
+# nombre
+nombre_archivo <- basename(archivos_extraidos)
+
+nombre_archivo <- sub(
+  x = nombre_archivo,
+  pattern = "\\.csv",
+  replacement = ""
+)
+
+nombre_archivo <- sub(
+  x = nombre_archivo,
+  pattern = "ENOE_",
+  replacement = ""
+)
+
+nombre_archivo <- tolower(nombre_archivo)
+
+# cargar
+# tamanio <- length(archivos_extraidos)
+# i <- vector(mode = "integer", length = tamanio)
+# 
+# for (i in 1:tamanio) {
+#   assign(
+#     x = nombre_archivo[[i]],
+#     value = read_csv(
+#       file = archivos_extraidos[[i]],
+#       col_types = cols(.default = col_character())
+#     )
+#   )
+# }
+
+enoe_year <- archivos_extraidos |> 
+  set_names(nm = nombre_archivo) |> 
+  map( \(archivos_extraidos) 
+    readr::read_csv(archivos_extraidos, col_types = cols(.default = col_character()))
+  )
+```
+
+Por otra parte, 
+
+"Pero no nos importa la salida de append_file(), así que en lugar de map() es un poco mejor usar walk(). walk() hace exactamente lo mismo que map() pero descarta el resultado:". Sección 26.4.1 R for data science (2a ed.)
+
+Se valida
+
+```{r}
+system.time(
+  archivos_extraidos |> 
+  set_names(nm = nombre_archivo) |> 
+  map( \(archivos_extraidos) 
+    readr::read_csv(archivos_extraidos, col_types = cols(.default = col_character()))
+  )
+)
+
+system.time(
+  archivos_extraidos |> 
+  set_names(nm = nombre_archivo) |> 
+  walk( \(archivos_extraidos) 
+    readr::read_csv(archivos_extraidos, col_types = cols(.default = col_character()))
+  )
+)
+```
+
+La diferencia es mínima.
+
+De momento, nos quedamos con el código que devuelve una lista.
+
+Se requiere de dos datos de entrada:
+
+1. URL
+2. Número de años
+
+El segundo puede ser un valor definido por el usuario o predefinido, para el caso de los cuadros y figuras que reporta el INEGI se comparan los indicadores del periodo actual con respecto a los reportados cuatro años atrás.
+
+De momento, vamos a trabajar con años especificados por el usuario así como el módulo especificado por el usuario.
+
+```{r}
+descargar_microdatos_years <- function(url, n_year, modulo)
+{
+  # obtener enlaces ----
+  url <- obtener_enlaces_year(url, n_year)
+  
+  # crear archivos temporales -----
+  
+  tamanio <- length(url)
+  i <- vector(mode = "integer", length = tamanio)
+  archivos_temp <- vector(mode = "character", length = tamanio)
+  
+  for (i in 1:tamanio) {
+    archivos_temp[[i]] <- tempfile(fileext = ".zip")
+  }
+  
+  # descargar microdatos -----
+  
+  options(timeout = max(900, getOption("timeout")))
+  
+  i <- vector(mode = "integer", length = tamanio)
+  
+  for (i in 1:tamanio) {
+    download.file(
+      url = url[[i]],
+      destfile = archivos_temp[[i]]
+    )
+  }
+  
+  # extraer módulo especificado -----
+  
+  tamanio <- length(archivos_temp)
+  i <- vector(mode = "integer", length = tamanio)
+  
+  
+  for (i in 1:tamanio) {
+    
+    microdatos <- unzip(
+      zipfile = archivos_temp[[i]],
+      list = TRUE,
+    )$Name
+    
+    unzip(
+      zipfile = archivos_temp[[i]],
+      list = FALSE,
+      files = grepv(modulo, microdatos, ignore.case = TRUE),
+      exdir = tempdir(),
+      overwrite = TRUE
+    )
+  }
+  
+  # eliminar archivos comprimidos -----
+  
+  unlink(
+    list.files(
+      path = tempdir(),
+      pattern = "\\.zip",
+      full.names = TRUE
+    )
+  )
+  
+  # carga -----
+  
+  # ruta
+  archivos_extraidos <- list.files(
+    path = tempdir(),
+    pattern = "\\.csv",
+    full.names = TRUE
+  )
+  
+  # nombre
+  nombre_archivo <- basename(archivos_extraidos)
+  
+  nombre_archivo <- sub(
+    x = nombre_archivo,
+    pattern = "\\.csv",
+    replacement = ""
+  )
+  
+  nombre_archivo <- sub(
+    x = nombre_archivo,
+    pattern = "ENOE_",
+    replacement = ""
+  )
+  
+  # nombre_archivo <- tolower(nombre_archivo)
+  
+  # definir como tibbles
+  
+  # crea n objetos, según el número de archivos, tipo tibble
+  # tamanio <- length(archivos_extraidos)
+  # i <- vector(mode = "integer", length = tamanio)
+  # 
+  # for (i in 1:tamanio) {
+  #   assign(
+  #     x = nombre_archivo[[i]],
+  #     value = read_csv(
+  #       file = archivos_extraidos[[i]],
+  #       col_types = cols(.default = col_character())
+  #     )
+  #   )
+  # }
+  
+  # crea un objeto tipo lista
+  # fuente R for data science (2a ed.) sección 26.3.4
+  enoe_year <- archivos_extraidos |> 
+    set_names(nm = nombre_archivo) |> 
+    walk( 
+      \(archivos_extraidos) # para añadir argumentos 
+      readr::read_csv(
+        archivos_extraidos, 
+        col_types = cols(.default = col_character())
+      )
+    ) 
+  
+  return(enoe_year)
+}
+```
+
+Se valida
+
+```{r}
+enoe <- descargar_microdatos_years(
+  url = "https://www.inegi.org.mx/contenidos/programas/enoe/15ymas/microdatos/enoe_2026_trim1_csv.zip",
+  n_year = 1,
+  modulo = "sdem"
+)
+
+names(enoe)
+
+enoe
+```
+
+No realizo el proceso de creación de lista ¿por qué? Se valida
+
+```{r}
+  url <- "https://www.inegi.org.mx/contenidos/programas/enoe/15ymas/microdatos/enoe_2026_trim1_csv.zip"
+  n_year <- 1
+  modulo <- "sdem"
+  
+  # obtener enlaces ----
+  url <- obtener_enlaces_year(url, n_year)
+  
+  # crear archivos temporales -----
+  
+  tamanio <- length(url)
+  i <- vector(mode = "integer", length = tamanio)
+  archivos_temp <- vector(mode = "character", length = tamanio)
+  
+  for (i in 1:tamanio) {
+    archivos_temp[[i]] <- tempfile(fileext = ".zip")
+  }
+  
+  # descargar microdatos -----
+  
+  options(timeout = max(900, getOption("timeout")))
+  
+  i <- vector(mode = "integer", length = tamanio)
+  
+  for (i in 1:tamanio) {
+    download.file(
+      url = url[[i]],
+      destfile = archivos_temp[[i]]
+    )
+  }
+  
+  # extraer módulo especificado -----
+  
+  tamanio <- length(archivos_temp)
+  i <- vector(mode = "integer", length = tamanio)
+  
+  
+  for (i in 1:tamanio) {
+    
+    microdatos <- unzip(
+      zipfile = archivos_temp[[i]],
+      list = TRUE,
+    )$Name
+    
+    unzip(
+      zipfile = archivos_temp[[i]],
+      list = FALSE,
+      files = grepv(modulo, microdatos, ignore.case = TRUE),
+      exdir = tempdir(),
+      overwrite = TRUE
+    )
+  }
+  
+  # eliminar archivos comprimidos -----
+  
+  unlink(
+    list.files(
+      path = tempdir(),
+      pattern = "\\.zip",
+      full.names = TRUE
+    )
+  )
+  
+  # carga -----
+  
+  # ruta
+  archivos_extraidos <- list.files(
+    path = tempdir(),
+    pattern = "\\.csv",
+    full.names = TRUE
+  )
+  
+  # nombre
+  nombre_archivo <- basename(archivos_extraidos)
+  
+  nombre_archivo <- sub(
+    x = nombre_archivo,
+    pattern = "\\.csv",
+    replacement = ""
+  )
+  
+  nombre_archivo <- sub(
+    x = nombre_archivo,
+    pattern = "ENOE_",
+    replacement = ""
+  )
+  
+  # nombre_archivo <- tolower(nombre_archivo)
+  
+  # definir como tibbles
+  
+  # crea n objetos, según el número de archivos, tipo tibble
+  # tamanio <- length(archivos_extraidos)
+  # i <- vector(mode = "integer", length = tamanio)
+  # 
+  # for (i in 1:tamanio) {
+  #   assign(
+  #     x = nombre_archivo[[i]],
+  #     value = read_csv(
+  #       file = archivos_extraidos[[i]],
+  #       col_types = cols(.default = col_character())
+  #     )
+  #   )
+  # }
+  
+  # crea un objeto tipo lista
+  # fuente R for data science (2a ed.) sección 26.3.4
+  enoe_year <- archivos_extraidos |> 
+    set_names(nm = nombre_archivo) |> 
+    walk( 
+      \(archivos_extraidos) # para añadir argumentos 
+      readr::read_csv(
+        archivos_extraidos, 
+        col_types = cols(.default = col_character())
+      )
+    ) 
+  
+  class(enoe_year)
+```
+
+El error está al momento al momento de crear la lista ¿por qué?
+
+```{r}
+archivos_extraidos
+nombre_archivo
+
+archivos_extraidos |> 
+    set_names(nm = nombre_archivo) |> 
+    walk( 
+      \(archivos_extraidos) # para añadir argumentos 
+      readr::read_csv(
+        archivos_extraidos, 
+        col_types = cols(.default = col_character())
+      )
+    ) 
+```
+
+Solamente ejecuta o no imprime el resultado, si se cambia a `map`?
+
+```{r}
+archivos_extraidos |> 
+    set_names(nm = nombre_archivo) |> 
+    map( 
+      \(archivos_extraidos) # para añadir argumentos 
+      readr::read_csv(
+        archivos_extraidos, 
+        col_types = cols(.default = col_character())
+      )
+    ) 
+```
+
+Sí devuelve la lista, entonces es con `map` y no `walk`. Se vuelve a validar
+
+```{r}
+descargar_microdatos_years <- function(url, n_year, modulo)
+{
+  # obtener enlaces ----
+  url <- obtener_enlaces_year(url, n_year)
+  
+  # crear archivos temporales -----
+  
+  tamanio <- length(url)
+  i <- vector(mode = "integer", length = tamanio)
+  archivos_temp <- vector(mode = "character", length = tamanio)
+  
+  for (i in 1:tamanio) {
+    archivos_temp[[i]] <- tempfile(fileext = ".zip")
+  }
+  
+  # descargar microdatos -----
+  
+  options(timeout = max(900, getOption("timeout")))
+  
+  i <- vector(mode = "integer", length = tamanio)
+  
+  for (i in 1:tamanio) {
+    download.file(
+      url = url[[i]],
+      destfile = archivos_temp[[i]]
+    )
+  }
+  
+  # extraer módulo especificado -----
+  
+  tamanio <- length(archivos_temp)
+  i <- vector(mode = "integer", length = tamanio)
+  
+  
+  for (i in 1:tamanio) {
+    
+    microdatos <- unzip(
+      zipfile = archivos_temp[[i]],
+      list = TRUE,
+    )$Name
+    
+    unzip(
+      zipfile = archivos_temp[[i]],
+      list = FALSE,
+      files = grepv(modulo, microdatos, ignore.case = TRUE),
+      exdir = tempdir(),
+      overwrite = TRUE
+    )
+  }
+  
+  # eliminar archivos comprimidos -----
+  
+  unlink(
+    list.files(
+      path = tempdir(),
+      pattern = "\\.zip",
+      full.names = TRUE
+    )
+  )
+  
+  # carga -----
+  
+  # ruta
+  archivos_extraidos <- list.files(
+    path = tempdir(),
+    pattern = "\\.csv",
+    full.names = TRUE
+  )
+  
+  # nombre
+  nombre_archivo <- basename(archivos_extraidos)
+  
+  nombre_archivo <- sub(
+    x = nombre_archivo,
+    pattern = "\\.csv",
+    replacement = ""
+  )
+  
+  nombre_archivo <- sub(
+    x = nombre_archivo,
+    pattern = "ENOE_",
+    replacement = ""
+  )
+  
+  # nombre_archivo <- tolower(nombre_archivo)
+  
+  # definir como tibbles
+  
+  # crea n objetos, según el número de archivos, tipo tibble
+  # tamanio <- length(archivos_extraidos)
+  # i <- vector(mode = "integer", length = tamanio)
+  # 
+  # for (i in 1:tamanio) {
+  #   assign(
+  #     x = nombre_archivo[[i]],
+  #     value = read_csv(
+  #       file = archivos_extraidos[[i]],
+  #       col_types = cols(.default = col_character())
+  #     )
+  #   )
+  # }
+  
+  # crea un objeto tipo lista
+  # fuente R for data science (2a ed.) sección 26.3.4
+  enoe_year <- archivos_extraidos |> 
+    set_names(nm = nombre_archivo) |> 
+    map( 
+      \(archivos_extraidos) # para añadir argumentos 
+      readr::read_csv(
+        archivos_extraidos, 
+        col_types = cols(.default = col_character())
+      )
+    ) 
+  
+  return(enoe_year)
+}
+```
+
+Se vuelve a validar
+
+```{r}
+enoe <- descargar_microdatos_years(
+  url = "https://www.inegi.org.mx/contenidos/programas/enoe/15ymas/microdatos/enoe_2026_trim1_csv.zip",
+  n_year = 1,
+  modulo = "sdem"
+)
+
+names(enoe)
+```
+
+Listo!
+
+Incluso podemos pasar el contenido de la función `obtener_enlaces_year` a esta función
+
+```{r}
+descargar_microdatos_years <- function(url, n_year, modulo)
+{
+  # obtener enlaces ----
+  
+  ## datos de entrada
+  
+  # año
+  year_actual <- regmatches(
+    x = url,
+    m = regexpr(
+      pattern = "\\d{4}",
+      text = url
+    )
+  )
+  
+  # número de trimestre
+  trimestre_actual <- regmatches(
+    x = url,
+    m = regexpr(
+      pattern = "trim\\d{1}",
+      text = url
+    )
+  )
+  
+  trimestre_actual <- regmatches(
+    x = trimestre_actual,
+    m = regexpr(
+      pattern = "\\d{1}",
+      text = trimestre_actual
+    )
+  )
+  
+  # resto de variables
+  year_actual <- as.integer(year_actual)
+  year_final <- year_actual - n_year
+  year <- year_actual
+  
+  trimestre_actual <- as.integer(trimestre_actual)
+  trimestre_final <- trimestre_actual
+  trimestre <- trimestre_actual
+  
+  i <- 1
+  tamanio <- trimestre_actual + ((n_year - 1) * 4) + (4 - trimestre_final + 1)
+  url <- vector(mode = "character", length = tamanio)
+  
+  ## bucle 
+  
+  while (year_final <= year) {
+    
+    while (trimestre >= 1) {
+      
+      url[[i]] <- sub(
+        pattern = "\\d{4}",
+        replacement = year,
+        x = url
+      )
+      
+      url[[i]] <- sub(
+        pattern = "trim\\d{1}",
+        replacement = paste("trim", trimestre, sep = ""),
+        x = url[[i]]
+      )
+      
+      if (year == year_final & trimestre == trimestre_actual) {
+        break
+      } else {
+        trimestre <- trimestre - 1 
+        i <- i + 1
+      }
+    } 
+    
+    trimestre <- 4
+    year <- year - 1
+  }
+  
+  ## coincidir con enlaces oficiales
+  
+  # para que coincida con enlace de ENOE 2T-2024
+  url <- sub(
+    x = url,
+    pattern = "/enoe_2024_trim2",
+    replacement = "//enoe_2024_trim2"
+  )
+  
+  # para que coincida con enlace de ENOE 2022
+  url <- sub(
+    x = url,
+    pattern = "enoe_2022",
+    replacement = "enoe_n_2022"
+  )
+  
+  # crear archivos temporales -----
+  
+  tamanio <- length(url)
+  i <- vector(mode = "integer", length = tamanio)
+  archivos_temp <- vector(mode = "character", length = tamanio)
+  
+  for (i in 1:tamanio) {
+    archivos_temp[[i]] <- tempfile(fileext = ".zip")
+  }
+  
+  # descargar microdatos -----
+  
+  options(timeout = max(900, getOption("timeout")))
+  
+  i <- vector(mode = "integer", length = tamanio)
+  
+  for (i in 1:tamanio) {
+    download.file(
+      url = url[[i]],
+      destfile = archivos_temp[[i]]
+    )
+  }
+  
+  # extraer módulo especificado -----
+  
+  tamanio <- length(archivos_temp)
+  i <- vector(mode = "integer", length = tamanio)
+  
+  
+  for (i in 1:tamanio) {
+    
+    microdatos <- unzip(
+      zipfile = archivos_temp[[i]],
+      list = TRUE,
+    )$Name
+    
+    unzip(
+      zipfile = archivos_temp[[i]],
+      list = FALSE,
+      files = grepv(modulo, microdatos, ignore.case = TRUE),
+      exdir = tempdir(),
+      overwrite = TRUE
+    )
+  }
+  
+  # eliminar archivos comprimidos -----
+  
+  unlink(
+    list.files(
+      path = tempdir(),
+      pattern = "\\.zip",
+      full.names = TRUE
+    )
+  )
+  
+  # carga -----
+  
+  # ruta
+  archivos_extraidos <- list.files(
+    path = tempdir(),
+    pattern = "\\.csv",
+    full.names = TRUE
+  )
+  
+  # nombre
+  nombre_archivo <- basename(archivos_extraidos)
+  
+  nombre_archivo <- sub(
+    x = nombre_archivo,
+    pattern = "\\.csv",
+    replacement = ""
+  )
+  
+  nombre_archivo <- sub(
+    x = nombre_archivo,
+    pattern = "ENOE_",
+    replacement = ""
+  )
+  
+  # nombre_archivo <- tolower(nombre_archivo)
+  
+  # definir como tibbles
+  
+  # crea n objetos, según el número de archivos, tipo tibble
+  # tamanio <- length(archivos_extraidos)
+  # i <- vector(mode = "integer", length = tamanio)
+  # 
+  # for (i in 1:tamanio) {
+  #   assign(
+  #     x = nombre_archivo[[i]],
+  #     value = read_csv(
+  #       file = archivos_extraidos[[i]],
+  #       col_types = cols(.default = col_character())
+  #     )
+  #   )
+  # }
+  
+  # crea un objeto tipo lista
+  # fuente R for data science (2a ed.) sección 26.3.4
+  enoe_year <- archivos_extraidos |> 
+    set_names(nm = nombre_archivo) |> 
+    map( 
+      \(archivos_extraidos) # para añadir argumentos 
+      readr::read_csv(
+        archivos_extraidos, 
+        col_types = cols(.default = col_character())
+      )
+    ) 
+  
+  return(enoe_year)
+}
+```
+
+Se valida
+
+```{{r}}
+enoe <- descargar_microdatos_years(
+  url = "https://www.inegi.org.mx/contenidos/programas/enoe/15ymas/microdatos/enoe_2026_trim1_csv.zip",
+  n_year = 1,
+  modulo = "sdem"
+)
+
+names(enoe)
+```
+
+Arroja error
+
+```
+Error en url[[i]] <- sub(pattern = "\\d{4}", replacement = year, x = url): 
+  se dan más elementos que los que pueden ser sustituídos
+```
+
+Se deja para después
+
+Por tanto, la función final queda como sigue
+
+```{r}
+descargar_microdatos_years <- function(url, n_year, modulo)
+{
+  # obtener enlaces ----
+  url <- obtener_enlaces_year(url, n_year)
+  
+  # crear archivos temporales -----
+  
+  tamanio <- length(url)
+  i <- vector(mode = "integer", length = tamanio)
+  archivos_temp <- vector(mode = "character", length = tamanio)
+  
+  for (i in 1:tamanio) {
+    archivos_temp[[i]] <- tempfile(fileext = ".zip")
+  }
+  
+  # descargar microdatos -----
+  
+  options(timeout = max(900, getOption("timeout")))
+  
+  i <- vector(mode = "integer", length = tamanio)
+  
+  for (i in 1:tamanio) {
+    download.file(
+      url = url[[i]],
+      destfile = archivos_temp[[i]]
+    )
+  }
+  
+  # extraer módulo especificado -----
+  
+  tamanio <- length(archivos_temp)
+  i <- vector(mode = "integer", length = tamanio)
+  
+  
+  for (i in 1:tamanio) {
+    
+    microdatos <- unzip(
+      zipfile = archivos_temp[[i]],
+      list = TRUE,
+    )$Name
+    
+    unzip(
+      zipfile = archivos_temp[[i]],
+      list = FALSE,
+      files = grepv(modulo, microdatos, ignore.case = TRUE),
+      exdir = tempdir(),
+      overwrite = TRUE
+    )
+  }
+  
+  # eliminar archivos comprimidos -----
+  
+  unlink(
+    list.files(
+      path = tempdir(),
+      pattern = "\\.zip",
+      full.names = TRUE
+    )
+  )
+  
+  # carga -----
+  
+  # ruta
+  archivos_extraidos <- list.files(
+    path = tempdir(),
+    pattern = "\\.csv",
+    full.names = TRUE
+  )
+  
+  # nombre
+  nombre_archivo <- basename(archivos_extraidos)
+  
+  nombre_archivo <- sub(
+    x = nombre_archivo,
+    pattern = "\\.csv",
+    replacement = ""
+  )
+  
+  nombre_archivo <- sub(
+    x = nombre_archivo,
+    pattern = "ENOE_",
+    replacement = ""
+  )
+  
+  # nombre_archivo <- tolower(nombre_archivo)
+  
+  # definir como tibbles
+  
+  # crea n objetos, según el número de archivos, tipo tibble
+  # tamanio <- length(archivos_extraidos)
+  # i <- vector(mode = "integer", length = tamanio)
+  # 
+  # for (i in 1:tamanio) {
+  #   assign(
+  #     x = nombre_archivo[[i]],
+  #     value = read_csv(
+  #       file = archivos_extraidos[[i]],
+  #       col_types = cols(.default = col_character())
+  #     )
+  #   )
+  # }
+  
+  # crea un objeto tipo lista
+  # fuente R for data science (2a ed.) sección 26.3.4
+  enoe_year <- archivos_extraidos |> 
+    set_names(nm = nombre_archivo) |> 
+    map( 
+      \(archivos_extraidos) # para añadir argumentos 
+      readr::read_csv(
+        archivos_extraidos, 
+        col_types = cols(.default = col_character())
+      )
+    ) 
+  
+  return(enoe_year)
+}
+```
+
+Se valida
+
+```{r}
+enoe <- descargar_microdatos_years(
+  url = "https://www.inegi.org.mx/contenidos/programas/enoe/15ymas/microdatos/enoe_2026_trim1_csv.zip",
+  n_year = 1,
+  modulo = "sdem"
+)
+
+names(enoe)
+class(enoe)
+```
+
+Listo! Se guarda en `0_funciones_v3-1.R`
+
