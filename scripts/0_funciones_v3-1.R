@@ -122,6 +122,186 @@ descargar_microdatos_enoe <- function(url, cuestionario){
   return(microdatos)
 }
 
+obtener_enlaces <- function(url_actual) 
+{
+  # datos de entrada -----
+  
+  # año
+  year_actual <- regmatches(
+    x = url_actual,
+    m = regexpr(
+      pattern = "\\d{4}",
+      text = url_actual
+    )
+  )
+  
+  # número de trimestre
+  trimestre_actual <- regmatches(
+    x = url_actual,
+    m = regexpr(
+      pattern = "trim\\d{1}",
+      text = url_actual
+    )
+  )
+  
+  trimestre_actual <- regmatches(
+    x = trimestre_actual,
+    m = regexpr(
+      pattern = "\\d{1}",
+      text = trimestre_actual
+    )
+  )
+  
+  # resto de variables
+  year_actual <- as.integer(year_actual)
+  year_final <- year_actual - 4
+  year <- year_actual
+  
+  trimestre_actual <- as.integer(trimestre_actual)
+  trimestre_final <- trimestre_actual
+  trimestre <- trimestre_actual
+  
+  i <- 1
+  tamanio <- trimestre_actual + (4 * 3) + (4 - trimestre_final + 1)
+  url <- vector(mode = "character", length = tamanio)
+  
+  # bucle -----
+  while (year_final <= year) {
+    
+    while (trimestre >= 1) {
+      
+      url[[i]] <- sub(
+        pattern = "\\d{4}",
+        replacement = year,
+        x = url_actual
+      )
+      
+      url[[i]] <- sub(
+        pattern = "trim\\d{1}",
+        replacement = paste("trim", trimestre, sep = ""),
+        x = url[[i]]
+      )
+      
+      if (year == year_final & trimestre == trimestre_actual) {
+        break
+      } else {
+        trimestre <- trimestre - 1 
+        i <- i + 1
+      }
+    } 
+    
+    trimestre <- 4
+    year <- year - 1
+  }
+  
+  # coincidir con enlaces oficiales -----
+  # para que coincida con enlace de ENOE 2T-2024
+  url <- sub(
+    x = url,
+    pattern = "/enoe_2024_trim2",
+    replacement = "//enoe_2024_trim2"
+  )
+  
+  # para que coincida con enlace de ENOE 2022
+  url <- sub(
+    x = url,
+    pattern = "enoe_2022",
+    replacement = "enoe_n_2022"
+  )
+  
+  return(url)
+}
+
+obtener_enlaces_year <- function(url_actual, n_year)
+{
+  # datos de entrada -----
+  
+  # año
+  year_actual <- regmatches(
+    x = url_actual,
+    m = regexpr(
+      pattern = "\\d{4}",
+      text = url_actual
+    )
+  )
+  
+  # número de trimestre
+  trimestre_actual <- regmatches(
+    x = url_actual,
+    m = regexpr(
+      pattern = "trim\\d{1}",
+      text = url_actual
+    )
+  )
+  
+  trimestre_actual <- regmatches(
+    x = trimestre_actual,
+    m = regexpr(
+      pattern = "\\d{1}",
+      text = trimestre_actual
+    )
+  )
+  
+  # resto de variables
+  year_actual <- as.integer(year_actual)
+  year_final <- year_actual - n_year
+  year <- year_actual
+  
+  trimestre_actual <- as.integer(trimestre_actual)
+  trimestre_final <- trimestre_actual
+  trimestre <- trimestre_actual
+  
+  i <- 1
+  tamanio <- trimestre_actual + ((n_year - 1) * 4) + (4 - trimestre_final + 1)
+  url <- vector(mode = "character", length = tamanio)
+  
+  # bucle -----
+  while (year_final <= year) {
+    
+    while (trimestre >= 1) {
+      
+      url[[i]] <- sub(
+        pattern = "\\d{4}",
+        replacement = year,
+        x = url_actual
+      )
+      
+      url[[i]] <- sub(
+        pattern = "trim\\d{1}",
+        replacement = paste("trim", trimestre, sep = ""),
+        x = url[[i]]
+      )
+      
+      if (year == year_final & trimestre == trimestre_actual) {
+        break
+      } else {
+        trimestre <- trimestre - 1 
+        i <- i + 1
+      }
+    } 
+    
+    trimestre <- 4
+    year <- year - 1
+  }
+  
+  # coincidir con enlaces oficiales -----
+  # para que coincida con enlace de ENOE 2T-2024
+  url <- sub(
+    x = url,
+    pattern = "/enoe_2024_trim2",
+    replacement = "//enoe_2024_trim2"
+  )
+  
+  # para que coincida con enlace de ENOE 2022
+  url <- sub(
+    x = url,
+    pattern = "enoe_2022",
+    replacement = "enoe_n_2022"
+  )
+  
+  return(url)
+}
+
 # para las tasas se requiere: 
 # 1. definir `eda` como entero 
 # 2. definir como encuesta compleja
@@ -487,3 +667,5 @@ generar_cuadros_tasas_sub <-
       )
     
   }
+
+
