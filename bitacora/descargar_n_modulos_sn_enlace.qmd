@@ -1,0 +1,2087 @@
+---
+date: "30-07-2026"
+format: gfm
+---
+
+A partir de lo desarrollado en `descargar_enoe/bitacora/validando_importinegi_enoe_2.qmd`, se modificará la función que permite obtener la misma tabla pero en distintos años: `descargar_n_modulos`.
+
+```{r}
+#| label: setup
+#| message: false
+#| warning: false
+
+library(tidyverse)
+library(here)
+
+source(here::here("scripts", "0_funciones.R"))
+```
+
+La versión actual de dicha función está desarrollada como sigue
+
+```{{r}}
+descargar_n_modulos <- function(url, n_year, modulo)
+{
+  # obtener enlaces ----
+  url <- obtener_n_enlaces(url, n_year)
+  
+  # crear archivos temporales -----
+  
+  tamanio <- length(url)
+  i <- vector(mode = "integer", length = tamanio)
+  archivos_temp <- vector(mode = "character", length = tamanio)
+  
+  for (i in 1:tamanio) {
+    archivos_temp[[i]] <- tempfile(fileext = ".zip")
+  }
+  
+  # descargar microdatos -----
+  
+  options(timeout = max(900, getOption("timeout")))
+  
+  i <- vector(mode = "integer", length = tamanio)
+  
+  for (i in 1:tamanio) {
+    download.file(
+      url = url[[i]],
+      destfile = archivos_temp[[i]]
+    )
+  }
+  
+  # extraer módulo especificado -----
+  
+  tamanio <- length(archivos_temp)
+  i <- vector(mode = "integer", length = tamanio)
+  
+  
+  for (i in 1:tamanio) {
+    
+    microdatos <- unzip(
+      zipfile = archivos_temp[[i]],
+      list = TRUE,
+    )$Name
+    
+    unzip(
+      zipfile = archivos_temp[[i]],
+      list = FALSE,
+      files = grepv(modulo, microdatos, ignore.case = TRUE),
+      exdir = tempdir(),
+      overwrite = TRUE
+    )
+  }
+  
+  # eliminar archivos comprimidos -----
+  
+  unlink(
+    list.files(
+      path = tempdir(),
+      pattern = "\\.zip",
+      full.names = TRUE
+    )
+  )
+  
+  # carga -----
+  
+  # ruta
+  archivos_extraidos <- list.files(
+    path = tempdir(),
+    pattern = "\\.csv",
+    full.names = TRUE
+  )
+  
+  # nombre
+  nombre_archivo <- basename(archivos_extraidos)
+  
+  nombre_archivo <- sub(
+    x = nombre_archivo,
+    pattern = "\\.csv",
+    replacement = ""
+  )
+  
+  nombre_archivo <- sub(
+    x = nombre_archivo,
+    pattern = "ENOE_",
+    replacement = ""
+  )
+  
+  # nombre_archivo <- tolower(nombre_archivo)
+  
+  # definir como tibbles
+  
+  # crea n objetos, según el número de archivos, tipo tibble
+  # tamanio <- length(archivos_extraidos)
+  # i <- vector(mode = "integer", length = tamanio)
+  # 
+  # for (i in 1:tamanio) {
+  #   assign(
+  #     x = nombre_archivo[[i]],
+  #     value = read_csv(
+  #       file = archivos_extraidos[[i]],
+  #       col_types = cols(.default = col_character())
+  #     )
+  #   )
+  # }
+  
+  # crea un objeto tipo lista
+  # fuente R for data science (2a ed.) sección 26.3.4
+  enoe_year <- archivos_extraidos |> 
+    set_names(nm = nombre_archivo) |> 
+    map( 
+      \(archivos_extraidos) # para añadir argumentos 
+      readr::read_csv(
+        archivos_extraidos, 
+        col_types = cols(.default = col_character())
+      )
+    ) 
+  
+  return(enoe_year)
+}
+```
+
+La limitante es que no considera la heterogeneidad de enlaces del repositorio del INEGI y además requiere el enlace. Pero lo que se tiene que modificar primero es la función `obtener_n_enlaces`. Actualmente está desarrollada como sigue
+
+```{{r}}
+obtener_n_enlaces <- function(url_actual, n_year)
+{
+  # datos de entrada -----
+  
+  # año
+  year_actual <- regmatches(
+    x = url_actual,
+    m = regexpr(
+      pattern = "\\d{4}",
+      text = url_actual
+    )
+  )
+  
+  # número de trimestre
+  trimestre_actual <- regmatches(
+    x = url_actual,
+    m = regexpr(
+      pattern = "trim\\d{1}",
+      text = url_actual
+    )
+  )
+  
+  trimestre_actual <- regmatches(
+    x = trimestre_actual,
+    m = regexpr(
+      pattern = "\\d{1}",
+      text = trimestre_actual
+    )
+  )
+  
+  # resto de variables
+  year_actual <- as.integer(year_actual)
+  year_final <- year_actual - n_year
+  year <- year_actual
+  
+  trimestre_actual <- as.integer(trimestre_actual)
+  trimestre_final <- trimestre_actual
+  trimestre <- trimestre_actual
+  
+  i <- 1
+  tamanio <- trimestre_actual + ((n_year - 1) * 4) + (4 - trimestre_final + 1)
+  url <- vector(mode = "character", length = tamanio)
+  
+  # bucle -----
+  while (year_final <= year) {
+    
+    while (trimestre >= 1) {
+      
+      url[[i]] <- sub(
+        pattern = "\\d{4}",
+        replacement = year,
+        x = url_actual
+      )
+      
+      url[[i]] <- sub(
+        pattern = "trim\\d{1}",
+        replacement = paste("trim", trimestre, sep = ""),
+        x = url[[i]]
+      )
+      
+      if (year == year_final & trimestre == trimestre_actual) {
+        break
+      } else {
+        trimestre <- trimestre - 1 
+        i <- i + 1
+      }
+    } 
+    
+    trimestre <- 4
+    year <- year - 1
+  }
+  
+  # coincidir con enlaces oficiales -----
+  # para que coincida con enlace de ENOE 2T-2024
+  url <- sub(
+    x = url,
+    pattern = "/enoe_2024_trim2",
+    replacement = "//enoe_2024_trim2"
+  )
+  
+  # para que coincida con enlace de ENOE 2022
+  url <- sub(
+    x = url,
+    pattern = "enoe_2022",
+    replacement = "enoe_n_2022"
+  )
+  
+  return(url)
+}
+```
+
+Se realiza modificación. Se decide dejar enlace génerico en el bucle y asignar los distintos tipos de enlace fuera del mismo ya que actua de forma vectorizada. Se valida
+
+```{{r}}
+# datos de entrada -----
+  
+  # año
+  year_actual <- 2026
+  
+  # número de trimestre
+  trimestre_actual <- 1
+  
+  n_year <- 4
+  
+  # resto de variables
+  year_final <- year_actual - n_year
+  year <- year_actual
+  
+  trimestre_final <- trimestre_actual
+  trimestre <- trimestre_actual
+  
+  i <- 1
+  tamanio <- trimestre_actual + ((n_year - 1) * 4) + (4 - trimestre_final + 1)
+  url <- vector(mode = "character", length = tamanio)
+  
+  # bucle -----
+  while (year_final <= year) {
+    
+    while (trimestre >= 1) {
+      
+      # https://www.inegi.org.mx/contenidos/programas/enoe/15ymas/microdatos/enoe_2026_trim1_csv.zip
+      
+      url[[i]] <- paste(
+        "https://www.inegi.org.mx/contenidos/programas/enoe/15ymas/microdatos/enoe_",
+        year, "_trim", trimestre, "_csv.zip", 
+        sep = ""
+      )
+      
+      if (year == year_final & trimestre == trimestre_actual) {
+        break
+      } else {
+        trimestre <- trimestre - 1 
+        i <- i + 1
+      }
+    } 
+    
+    trimestre <- 4
+    year <- year - 1
+  }
+```
+
+Se decide dejar enlace génerico en el bucle y asignar los distintos tipos de enlace fuera del mismo ya que actua de forma vectorizada. Se valida
+
+```{r}
+# datos de entrada -----
+  
+  # año
+  year_actual <- 2026
+  
+  # número de trimestre
+  trimestre_actual <- 1
+  
+  n_year <- 4
+  
+  # resto de variables
+  year_final <- year_actual - n_year
+  year <- year_actual
+  
+  trimestre_final <- trimestre_actual
+  trimestre <- trimestre_actual
+  
+  i <- 1
+  tamanio <- trimestre_actual + ((n_year - 1) * 4) + (4 - trimestre_final + 1)
+  url <- vector(mode = "character", length = tamanio)
+  
+  # bucle -----
+  while (year_final <= year) {
+    
+    while (trimestre >= 1) {
+      
+      # https://www.inegi.org.mx/contenidos/programas/enoe/15ymas/microdatos/enoe_2026_trim1_csv.zip
+      
+      url[[i]] <- paste(
+        "https://www.inegi.org.mx/contenidos/programas/enoe/15ymas/microdatos/enoe_",
+        year, "_trim", trimestre, "_csv.zip", 
+        sep = ""
+      )
+      
+      if (year == year_final & trimestre == trimestre_actual) {
+        break
+      } else {
+        trimestre <- trimestre - 1 
+        i <- i + 1
+      }
+    } 
+    
+    trimestre <- 4
+    year <- year - 1
+  }
+  
+  url
+```
+
+Listo! Ahora si genero el operador condicional deben crearse los distintos enlaces de forma vectorizada
+
+```{r}
+# obtener enlaces según el periodo
+  if (year >= 2023) {
+    url <- paste(url, "enoe_", year, "_trim", trimestre, "_csv.zip", sep = "")
+  } else if ((year == 2020 & trimestre >= 3 ) | (year >= 2021 & year <= 2022)) {
+    url <- paste(url, "enoe_n_", year, "_trim", trimestre, "_csv.zip", sep = "")
+  } else {
+    url <- paste(url, year, "trim", trimestre, "_csv.zip", sep = "")
+  }
+  
+  # enlaces con casos especiales
+  # doble barra
+  if (year == 2024 & trimestre == 2) {
+    url <- sub(
+      x = url,
+      pattern = "/enoe_2024",
+      replacement = "//enoe_2024"
+    )
+  } else if (year == 2020 & trimestre == 2) {
+    # no existe enlace
+    stop("No existe enlace para dicho periodo. Se sugiere utilizar las bases de datos de la ETOE, la cual proporciona información para los meses de abril, mayo y junio: <https://www.inegi.org.mx/investigacion/etoe/default.html#Microdatos>. Las cifras que ofrece ETOE no son estrictamente comparables con ENOE pero son una aproximación a los indicadores de la ENOE. La comparación es útil como medida de referencia.")
+  }
+
+  url
+```
+
+No arroja el resultado esperado, sí se tiene que hacer dentro del bucle
+
+```{r}
+# datos de entrada -----
+  
+  # año
+  year_actual <- 2026
+  
+  # número de trimestre
+  trimestre_actual <- 1
+  
+  n_year <- 4
+  
+  # resto de variables
+  year_final <- year_actual - n_year
+  year <- year_actual
+  
+  trimestre_final <- trimestre_actual
+  trimestre <- trimestre_actual
+  
+  i <- 1
+  tamanio <- trimestre_actual + ((n_year - 1) * 4) + (4 - trimestre_final + 1)
+  enlace <- "https://www.inegi.org.mx/contenidos/programas/enoe/15ymas/microdatos/"
+  
+  url <- vector(mode = "character", length = tamanio)
+  
+  # bucle -----
+  while (year_final <= year) {
+    
+    while (trimestre >= 1) {
+      
+      # https://www.inegi.org.mx/contenidos/programas/enoe/15ymas/microdatos/enoe_2026_trim1_csv.zip
+      
+      # obtener enlaces según el periodo
+      if (year >= 2023) {
+        url[[i]] <- paste(enlace, "enoe_", year, "_trim", trimestre, "_csv.zip", sep = "")
+      } else if ((year == 2020 & trimestre >= 3 ) | (year >= 2021 & year <= 2022)) {
+        url[[i]] <- paste(enlace, "enoe_n_", year, "_trim", trimestre, "_csv.zip", sep = "")
+      } else {
+        url[[i]] <- paste(enlace, year, "trim", trimestre, "_csv.zip", sep = "")
+      }
+      
+      if (year == year_final & trimestre == trimestre_actual) {
+        break
+      } else {
+        trimestre <- trimestre - 1 
+        i <- i + 1
+      }
+    } 
+    
+    trimestre <- 4
+    year <- year - 1
+  }
+  
+  url
+```
+
+Listo! Y fuera del bucle se añaden casos especiales
+
+```{r}
+# datos de entrada -----
+  
+  # año
+  year_actual <- 2026
+  
+  # número de trimestre
+  trimestre_actual <- 1
+  
+  n_year <- 4
+  
+  # resto de variables
+  year_final <- year_actual - n_year
+  year <- year_actual
+  
+  trimestre_final <- trimestre_actual
+  trimestre <- trimestre_actual
+  
+  i <- 1
+  tamanio <- trimestre_actual + ((n_year - 1) * 4) + (4 - trimestre_final + 1)
+  enlace <- "https://www.inegi.org.mx/contenidos/programas/enoe/15ymas/microdatos/"
+  
+  url <- vector(mode = "character", length = tamanio)
+  
+  # bucle -----
+  while (year_final <= year) {
+    
+    while (trimestre >= 1) {
+      
+      # https://www.inegi.org.mx/contenidos/programas/enoe/15ymas/microdatos/enoe_2026_trim1_csv.zip
+      
+      # obtener enlaces según el periodo
+      if (year >= 2023) {
+        url[[i]] <- paste(enlace, "enoe_", year, "_trim", trimestre, "_csv.zip", sep = "")
+      } else if ((year == 2020 & trimestre >= 3 ) | (year >= 2021 & year <= 2022)) {
+        url[[i]] <- paste(enlace, "enoe_n_", year, "_trim", trimestre, "_csv.zip", sep = "")
+      } else {
+        url[[i]] <- paste(enlace, year, "trim", trimestre, "_csv.zip", sep = "")
+      }
+      
+      # enlaces con casos especiales
+      # doble barra
+      if (year == 2024 & trimestre == 2) {
+        url[[i]] <- paste(enlace, "/enoe_", year, "_trim", trimestre, "_csv.zip", sep = "")
+      } else if (year == 2020 & trimestre == 2) {
+        # no existe enlace
+        url[[i]] <- "No existe enlace para dicho periodo"
+      }
+      
+      if (year == year_final & trimestre == trimestre_actual) {
+        break
+      } else {
+        trimestre <- trimestre - 1 
+        i <- i + 1
+      }
+    } 
+    
+    trimestre <- 4
+    year <- year - 1
+  }
+  
+  url
+```
+
+Al final se decidió poner el operador condicional dentro del bucle. Se valida que sí arrojó el resultado esperado. Se hacen más pruebas
+
+```{r}
+# datos de entrada -----
+  
+  # año
+  year_actual <- 2025
+  
+  # número de trimestre
+  trimestre_actual <- 4
+  
+  n_year <- 6
+  
+  # resto de variables
+  year_final <- year_actual - n_year
+  year <- year_actual
+  
+  trimestre_final <- trimestre_actual
+  trimestre <- trimestre_actual
+  
+  i <- 1
+  tamanio <- trimestre_actual + ((n_year - 1) * 4) + (4 - trimestre_final + 1)
+  enlace <- "https://www.inegi.org.mx/contenidos/programas/enoe/15ymas/microdatos/"
+  
+  url <- vector(mode = "character", length = tamanio)
+  
+  # bucle -----
+  while (year_final <= year) {
+    
+    while (trimestre >= 1) {
+      
+      # https://www.inegi.org.mx/contenidos/programas/enoe/15ymas/microdatos/enoe_2026_trim1_csv.zip
+      
+      # obtener enlaces según el periodo
+      if (year >= 2023) {
+        url[[i]] <- paste(enlace, "enoe_", year, "_trim", trimestre, "_csv.zip", sep = "")
+      } else if ((year == 2020 & trimestre >= 3 ) | (year >= 2021 & year <= 2022)) {
+        url[[i]] <- paste(enlace, "enoe_n_", year, "_trim", trimestre, "_csv.zip", sep = "")
+      } else {
+        url[[i]] <- paste(enlace, year, "trim", trimestre, "_csv.zip", sep = "")
+      }
+      
+      # enlaces con casos especiales
+      # doble barra
+      if (year == 2024 & trimestre == 2) {
+        url[[i]] <- paste(enlace, "/enoe_", year, "_trim", trimestre, "_csv.zip", sep = "")
+      } else if (year == 2020 & trimestre == 2) {
+        # no existe enlace
+        url[[i]] <- paste("No existe enlace para el periodo", year, "trimestre", trimestre)
+      }
+      
+      if (year == year_final & trimestre == trimestre_actual) {
+        break
+      } else {
+        trimestre <- trimestre - 1 
+        i <- i + 1
+      }
+    } 
+    
+    trimestre <- 4
+    year <- year - 1
+  }
+  
+  url
+```
+
+Correcto! Se hace más pruebas
+
+```{r}
+# datos de entrada -----
+  
+  # año
+  year_actual <- 2017
+  
+  # número de trimestre
+  trimestre_actual <- 3
+  
+  n_year <- 10
+  
+  # resto de variables
+  year_final <- year_actual - n_year
+  year <- year_actual
+  
+  trimestre_final <- trimestre_actual
+  trimestre <- trimestre_actual
+  
+  i <- 1
+  tamanio <- trimestre_actual + ((n_year - 1) * 4) + (4 - trimestre_final + 1)
+  enlace <- "https://www.inegi.org.mx/contenidos/programas/enoe/15ymas/microdatos/"
+  
+  url <- vector(mode = "character", length = tamanio)
+  
+  # bucle -----
+  while (year_final <= year) {
+    
+    while (trimestre >= 1) {
+      
+      # https://www.inegi.org.mx/contenidos/programas/enoe/15ymas/microdatos/enoe_2026_trim1_csv.zip
+      
+      # obtener enlaces según el periodo
+      if (year >= 2023) {
+        url[[i]] <- paste(enlace, "enoe_", year, "_trim", trimestre, "_csv.zip", sep = "")
+      } else if ((year == 2020 & trimestre >= 3 ) | (year >= 2021 & year <= 2022)) {
+        url[[i]] <- paste(enlace, "enoe_n_", year, "_trim", trimestre, "_csv.zip", sep = "")
+      } else {
+        url[[i]] <- paste(enlace, year, "trim", trimestre, "_csv.zip", sep = "")
+      }
+      
+      # enlaces con casos especiales
+      # doble barra
+      if (year == 2024 & trimestre == 2) {
+        url[[i]] <- paste(enlace, "/enoe_", year, "_trim", trimestre, "_csv.zip", sep = "")
+      } else if (year == 2020 & trimestre == 2) {
+        # no existe enlace
+        url[[i]] <- paste("No existe enlace para el periodo", year, "trimestre", trimestre)
+      }
+      
+      if (year == year_final & trimestre == trimestre_actual) {
+        break
+      } else {
+        trimestre <- trimestre - 1 
+        i <- i + 1
+      }
+    } 
+    
+    trimestre <- 4
+    year <- year - 1
+  }
+  
+  url
+```
+
+Listo!
+
+Entonces la función `obtener_n_enlaces` queda como sigue
+
+```{r}
+obtener_n_enlaces <- function(year_actual, trimestre_actual, n_year)
+{
+  # datos de entrada -------
+  # resto de variables
+  year_final <- year_actual - n_year
+  year <- year_actual
+  
+  trimestre_final <- trimestre_actual
+  trimestre <- trimestre_actual
+  
+  i <- 1
+  tamanio <- trimestre_actual + ((n_year - 1) * 4) + (4 - trimestre_final + 1)
+  enlace <- "https://www.inegi.org.mx/contenidos/programas/enoe/15ymas/microdatos/"
+  
+  url <- vector(mode = "character", length = tamanio)
+  
+  # bucle -----
+  while (year_final <= year) {
+    
+    while (trimestre >= 1) {
+      
+      # https://www.inegi.org.mx/contenidos/programas/enoe/15ymas/microdatos/enoe_2026_trim1_csv.zip
+      
+      # obtener enlaces según el periodo
+      if (year >= 2023) {
+        url[[i]] <- paste(enlace, "enoe_", year, "_trim", trimestre, "_csv.zip", sep = "")
+      } else if ((year == 2020 & trimestre >= 3 ) | (year >= 2021 & year <= 2022)) {
+        url[[i]] <- paste(enlace, "enoe_n_", year, "_trim", trimestre, "_csv.zip", sep = "")
+      } else {
+        url[[i]] <- paste(enlace, year, "trim", trimestre, "_csv.zip", sep = "")
+      }
+      
+      # enlaces con casos especiales
+      # doble barra
+      if (year == 2024 & trimestre == 2) {
+        url[[i]] <- paste(enlace, "/enoe_", year, "_trim", trimestre, "_csv.zip", sep = "")
+      } else if (year == 2020 & trimestre == 2) {
+        # no existe enlace
+        url[[i]] <- paste("No existe enlace para el periodo", year, "trimestre", trimestre)
+      }
+      
+      if (year == year_final & trimestre == trimestre_actual) {
+        break
+      } else {
+        trimestre <- trimestre - 1 
+        i <- i + 1
+      }
+    } 
+    
+    trimestre <- 4
+    year <- year - 1
+  }
+  
+  return(url)
+}
+```
+
+Se valida
+
+```{r}
+obtener_n_enlaces(2020, 4, 4)
+```
+
+Listo!
+
+Se integra a la función `descargar_n_modulos`
+
+```{r}
+descargar_n_modulos <- function(year_actual, trimestre_actual, n_year, modulo)
+{
+  # obtener enlaces ----
+  url <- obtener_n_enlaces(year_actual, trimestre_actual, n_year)
+  
+  # crear archivos temporales -----
+  
+  tamanio <- length(url)
+  i <- vector(mode = "integer", length = tamanio)
+  archivos_temp <- vector(mode = "character", length = tamanio)
+  
+  for (i in 1:tamanio) {
+    archivos_temp[[i]] <- tempfile(fileext = ".zip")
+  }
+  
+  # descargar microdatos -----
+  
+  options(timeout = max(900, getOption("timeout")))
+  
+  i <- vector(mode = "integer", length = tamanio)
+  
+  for (i in 1:tamanio) {
+    download.file(
+      url = url[[i]],
+      destfile = archivos_temp[[i]]
+    )
+  }
+  
+  # extraer módulo especificado -----
+  
+  tamanio <- length(archivos_temp)
+  i <- vector(mode = "integer", length = tamanio)
+  
+  
+  for (i in 1:tamanio) {
+    
+    microdatos <- unzip(
+      zipfile = archivos_temp[[i]],
+      list = TRUE,
+    )$Name
+    
+    unzip(
+      zipfile = archivos_temp[[i]],
+      list = FALSE,
+      files = grepv(modulo, microdatos, ignore.case = TRUE),
+      exdir = tempdir(),
+      overwrite = TRUE
+    )
+  }
+  
+  # eliminar archivos comprimidos -----
+  
+  unlink(
+    list.files(
+      path = tempdir(),
+      pattern = "\\.zip",
+      full.names = TRUE
+    )
+  )
+  
+  # carga -----
+  
+  # ruta
+  archivos_extraidos <- list.files(
+    path = tempdir(),
+    pattern = "\\.csv",
+    full.names = TRUE
+  )
+  
+  # nombre
+  nombre_archivo <- basename(archivos_extraidos)
+  
+  nombre_archivo <- sub(
+    x = nombre_archivo,
+    pattern = "\\.csv",
+    replacement = ""
+  )
+  
+  nombre_archivo <- sub(
+    x = nombre_archivo,
+    pattern = "ENOE_",
+    replacement = ""
+  )
+  
+  # nombre_archivo <- tolower(nombre_archivo)
+  
+  # definir como tibbles
+  
+  # crea n objetos, según el número de archivos, tipo tibble
+  # tamanio <- length(archivos_extraidos)
+  # i <- vector(mode = "integer", length = tamanio)
+  # 
+  # for (i in 1:tamanio) {
+  #   assign(
+  #     x = nombre_archivo[[i]],
+  #     value = read_csv(
+  #       file = archivos_extraidos[[i]],
+  #       col_types = cols(.default = col_character())
+  #     )
+  #   )
+  # }
+  
+  # crea un objeto tipo lista
+  # fuente R for data science (2a ed.) sección 26.3.4
+  n_modulos <- archivos_extraidos |> 
+    set_names(nm = nombre_archivo) |> 
+    map( 
+      \(archivos_extraidos) # para añadir argumentos 
+      readr::read_csv(
+        archivos_extraidos, 
+        col_types = cols(.default = col_character())
+      )
+    ) 
+  
+  return(n_modulos)
+}
+```
+
+Se valida 
+
+```{r}
+enoe <- descargar_n_modulos(2026, 1, 1, "sdem")
+
+names(enoe)
+```
+
+Listo!!! Ya está!!!
+
+El caso especial de 2020-2T. Puede agregarse un SÍ al momento de extraer los archivos
+
+Antes
+
+```{{r}}
+for (i in 1:tamanio) {
+    
+    microdatos <- unzip(
+      zipfile = archivos_temp[[i]],
+      list = TRUE,
+    )$Name
+    
+    unzip(
+      zipfile = archivos_temp[[i]],
+      list = FALSE,
+      files = grepv(modulo, microdatos, ignore.case = TRUE),
+      exdir = tempdir(),
+      overwrite = TRUE
+    )
+  }
+```
+
+Ahora
+
+```{{r}}
+periodo_sn_enlace <- grep(
+  x = url,
+  pattern = "^https"
+)
+for (i in 1:tamanio) {
+    
+    if (i != periodo_sn_enlace){
+      microdatos <- unzip(
+        zipfile = archivos_temp[[i]],
+        list = TRUE,
+      )$Name
+      
+      unzip(
+        zipfile = archivos_temp[[i]],
+        list = FALSE,
+        files = grepv(modulo, microdatos, ignore.case = TRUE),
+        exdir = tempdir(),
+        overwrite = TRUE
+      )
+    }
+  }
+```
+
+Se valida
+
+```{r}
+url <- obtener_n_enlaces(2020, 4, 1)
+
+periodo_sn_enlace <- grep(
+  x = url,
+  pattern = "No existe enlace"
+)
+
+url
+periodo_sn_enlace
+```
+
+Se añade a la función
+
+```{r}
+descargar_n_modulos <- function(year_actual, trimestre_actual, n_year, modulo)
+{
+  # obtener enlaces ----
+  url <- obtener_n_enlaces(year_actual, trimestre_actual, n_year)
+  
+  # crear archivos temporales -----
+  
+  tamanio <- length(url)
+  i <- vector(mode = "integer", length = tamanio)
+  archivos_temp <- vector(mode = "character", length = tamanio)
+  
+  for (i in 1:tamanio) {
+    archivos_temp[[i]] <- tempfile(fileext = ".zip")
+  }
+  
+  # descargar microdatos -----
+  
+  options(timeout = max(900, getOption("timeout")))
+  
+  i <- vector(mode = "integer", length = tamanio)
+  periodo_sn_enlace <- grep(
+    x = url,
+    pattern = "No existe enlace"
+  )
+  
+  for (i in 1:tamanio) {
+    if (i != periodo_sn_enlace) {
+      download.file(
+        url = url[[i]],
+        destfile = archivos_temp[[i]]
+      )
+    }
+  }
+  
+  # extraer módulo especificado -----
+  
+  tamanio <- length(archivos_temp)
+  i <- vector(mode = "integer", length = tamanio)
+  
+  for (i in 1:tamanio) {
+    
+    if ( i != periodo_sn_enlace ){
+      microdatos <- unzip(
+        zipfile = archivos_temp[[i]],
+        list = TRUE,
+      )$Name
+      
+      unzip(
+        zipfile = archivos_temp[[i]],
+        list = FALSE,
+        files = grepv(modulo, microdatos, ignore.case = TRUE),
+        exdir = tempdir(),
+        overwrite = TRUE
+      )
+    }
+  }
+  
+  # eliminar archivos comprimidos -----
+  
+  unlink(
+    list.files(
+      path = tempdir(),
+      pattern = "\\.zip",
+      full.names = TRUE
+    )
+  )
+  
+  # carga -----
+  
+  # ruta
+  archivos_extraidos <- list.files(
+    path = tempdir(),
+    pattern = "\\.csv",
+    full.names = TRUE
+  )
+  
+  # nombre
+  nombre_archivo <- basename(archivos_extraidos)
+  
+  nombre_archivo <- sub(
+    x = nombre_archivo,
+    pattern = "\\.csv",
+    replacement = ""
+  )
+  
+  nombre_archivo <- sub(
+    x = nombre_archivo,
+    pattern = "ENOE_|ENOEN_",
+    replacement = ""
+  )
+  
+  # nombre_archivo <- tolower(nombre_archivo)
+  
+  # definir como tibbles
+  
+  # crea n objetos, según el número de archivos, tipo tibble
+  # tamanio <- length(archivos_extraidos)
+  # i <- vector(mode = "integer", length = tamanio)
+  # 
+  # for (i in 1:tamanio) {
+  #   assign(
+  #     x = nombre_archivo[[i]],
+  #     value = read_csv(
+  #       file = archivos_extraidos[[i]],
+  #       col_types = cols(.default = col_character())
+  #     )
+  #   )
+  # }
+  
+  # crea un objeto tipo lista
+  # fuente R for data science (2a ed.) sección 26.3.4
+  n_modulos <- archivos_extraidos |> 
+    set_names(nm = nombre_archivo) |> 
+    map( 
+      \(archivos_extraidos) # para añadir argumentos 
+      readr::read_csv(
+        archivos_extraidos, 
+        col_types = cols(.default = col_character())
+      )
+    ) 
+  
+  return(n_modulos)
+}
+```
+
+Se valida
+
+```{r}
+enoe <- descargar_n_modulos(2020, 4, 1, "sdem")
+
+names(enoe)
+```
+
+Listo!
+
+La función solamente elimina archivos zip, se modifica
+
+```{r}
+descargar_n_modulos <- function(year_actual, trimestre_actual, n_year, modulo)
+{
+  # obtener enlaces ----
+  url <- obtener_n_enlaces(year_actual, trimestre_actual, n_year)
+  
+  # crear archivos temporales -----
+  
+  tamanio <- length(url)
+  i <- vector(mode = "integer", length = tamanio)
+  archivos_temp <- vector(mode = "character", length = tamanio)
+  
+  for (i in 1:tamanio) {
+    archivos_temp[[i]] <- tempfile(fileext = ".zip")
+  }
+  
+  # descargar microdatos -----
+  
+  options(timeout = max(900, getOption("timeout")))
+  
+  i <- vector(mode = "integer", length = tamanio)
+  periodo_sn_enlace <- grep(
+    x = url,
+    pattern = "No existe enlace"
+  )
+  
+  for (i in 1:tamanio) {
+    if ( i != periodo_sn_enlace ) {
+      download.file(
+        url = url[[i]],
+        destfile = archivos_temp[[i]]
+      )
+    }
+  }
+  
+  # extraer módulo especificado -----
+  
+  tamanio <- length(archivos_temp)
+  i <- vector(mode = "integer", length = tamanio)
+  
+  for (i in 1:tamanio) {
+    
+    if ( i != periodo_sn_enlace ) {
+      microdatos <- unzip(
+        zipfile = archivos_temp[[i]],
+        list = TRUE,
+      )$Name
+      
+      unzip(
+        zipfile = archivos_temp[[i]],
+        list = FALSE,
+        files = grepv(modulo, microdatos, ignore.case = TRUE),
+        exdir = tempdir(),
+        overwrite = TRUE
+      )
+    }
+  }
+  
+  # carga -----
+  
+  # ruta
+  archivos_extraidos <- list.files(
+    path = tempdir(),
+    pattern = "\\.csv",
+    full.names = TRUE
+  )
+  
+  # nombre
+  nombre_archivo <- basename(archivos_extraidos)
+  
+  nombre_archivo <- sub(
+    x = nombre_archivo,
+    pattern = "\\.csv",
+    replacement = ""
+  )
+  
+  nombre_archivo <- sub(
+    x = nombre_archivo,
+    pattern = "ENOE_|ENOEN_",
+    replacement = ""
+  )
+  
+  # nombre_archivo <- tolower(nombre_archivo)
+  
+  # definir como tibbles
+  
+  # crea n objetos, según el número de archivos, tipo tibble
+  # tamanio <- length(archivos_extraidos)
+  # i <- vector(mode = "integer", length = tamanio)
+  # 
+  # for (i in 1:tamanio) {
+  #   assign(
+  #     x = nombre_archivo[[i]],
+  #     value = read_csv(
+  #       file = archivos_extraidos[[i]],
+  #       col_types = cols(.default = col_character())
+  #     )
+  #   )
+  # }
+  
+  # crea un objeto tipo lista
+  # fuente R for data science (2a ed.) sección 26.3.4
+  n_modulos <- archivos_extraidos |> 
+    set_names(nm = nombre_archivo) |> 
+    map( 
+      \(archivos_extraidos) # para añadir argumentos 
+      readr::read_csv(
+        archivos_extraidos, 
+        col_types = cols(.default = col_character())
+      )
+    ) 
+  
+  # eliminar archivos comprimidos -----
+  
+  unlink(
+    list.files(
+      path = tempdir(),
+      pattern = "\\.zip$|\\.csv$",
+      full.names = TRUE
+    )
+  )
+  
+  return(n_modulos)
+}
+```
+
+Se valida
+
+```{r}
+enoe <- descargar_n_modulos(2020, 4, 1, "sdem")
+
+names(enoe)
+```
+
+Listo!
+
+```{r}
+list.files(
+      path = tempdir(),
+      # pattern = "\\.zip$|\\.csv$",
+      full.names = TRUE
+    )
+```
+
+
+Por tanto, las funciones quedan como sigue:
+
+```{r}
+obtener_n_enlaces <- function(year_actual, trimestre_actual, n_year)
+{
+  # datos de entrada -------
+  # resto de variables
+  year_final <- year_actual - n_year
+  year <- year_actual
+  
+  trimestre_final <- trimestre_actual
+  trimestre <- trimestre_actual
+  
+  i <- 1
+  tamanio <- trimestre_actual + ((n_year - 1) * 4) + (4 - trimestre_final + 1)
+  enlace <- "https://www.inegi.org.mx/contenidos/programas/enoe/15ymas/microdatos/"
+  
+  url <- vector(mode = "character", length = tamanio)
+  
+  # bucle -----
+  while (year_final <= year) {
+    
+    while (trimestre >= 1) {
+      
+      # https://www.inegi.org.mx/contenidos/programas/enoe/15ymas/microdatos/enoe_2026_trim1_csv.zip
+      
+      # obtener enlaces según el periodo
+      if (year >= 2023) {
+        url[[i]] <- paste(enlace, "enoe_", year, "_trim", trimestre, "_csv.zip", sep = "")
+      } else if ((year == 2020 & trimestre >= 3 ) | (year >= 2021 & year <= 2022)) {
+        url[[i]] <- paste(enlace, "enoe_n_", year, "_trim", trimestre, "_csv.zip", sep = "")
+      } else {
+        url[[i]] <- paste(enlace, year, "trim", trimestre, "_csv.zip", sep = "")
+      }
+      
+      # enlaces con casos especiales
+      # doble barra
+      if (year == 2024 & trimestre == 2) {
+        url[[i]] <- paste(enlace, "/enoe_", year, "_trim", trimestre, "_csv.zip", sep = "")
+      } else if (year == 2020 & trimestre == 2) {
+        # no existe enlace
+        url[[i]] <- paste("No existe enlace para el periodo", year, "trimestre", trimestre)
+      }
+      
+      if (year == year_final & trimestre == trimestre_actual) {
+        break
+      } else {
+        trimestre <- trimestre - 1 
+        i <- i + 1
+      }
+    } 
+    
+    trimestre <- 4
+    year <- year - 1
+  }
+  
+  return(url)
+}
+
+descargar_n_modulos <- function(year_actual, trimestre_actual, n_year, modulo)
+{
+  # obtener enlaces ----
+  url <- obtener_n_enlaces(year_actual, trimestre_actual, n_year)
+  
+  # crear archivos temporales -----
+  
+  tamanio <- length(url)
+  i <- vector(mode = "integer", length = tamanio)
+  archivos_temp <- vector(mode = "character", length = tamanio)
+  
+  for (i in 1:tamanio) {
+    archivos_temp[[i]] <- tempfile(fileext = ".zip")
+  }
+  
+  # descargar microdatos -----
+  
+  options(timeout = max(900, getOption("timeout")))
+  
+  i <- vector(mode = "integer", length = tamanio)
+  periodo_sn_enlace <- grep(
+    x = url,
+    pattern = "No existe enlace"
+  )
+  
+  for (i in 1:tamanio) {
+    if ( i != periodo_sn_enlace ) {
+      download.file(
+        url = url[[i]],
+        destfile = archivos_temp[[i]]
+      )
+    }
+  }
+  
+  # extraer módulo especificado -----
+  
+  tamanio <- length(archivos_temp)
+  i <- vector(mode = "integer", length = tamanio)
+  
+  for (i in 1:tamanio) {
+    
+    if ( i != periodo_sn_enlace ) {
+      microdatos <- unzip(
+        zipfile = archivos_temp[[i]],
+        list = TRUE,
+      )$Name
+      
+      unzip(
+        zipfile = archivos_temp[[i]],
+        list = FALSE,
+        files = grepv(modulo, microdatos, ignore.case = TRUE),
+        exdir = tempdir(),
+        overwrite = TRUE
+      )
+    }
+  }
+  
+  # carga -----
+  
+  # ruta
+  archivos_extraidos <- list.files(
+    path = tempdir(),
+    pattern = "\\.csv",
+    full.names = TRUE
+  )
+  
+  # nombre
+  nombre_archivo <- basename(archivos_extraidos)
+  
+  nombre_archivo <- sub(
+    x = nombre_archivo,
+    pattern = "\\.csv",
+    replacement = ""
+  )
+  
+  nombre_archivo <- sub(
+    x = nombre_archivo,
+    pattern = "ENOE_|ENOEN_",
+    replacement = ""
+  )
+  
+  # nombre_archivo <- tolower(nombre_archivo)
+  
+  # definir como tibbles
+  
+  # crea n objetos, según el número de archivos, tipo tibble
+  # tamanio <- length(archivos_extraidos)
+  # i <- vector(mode = "integer", length = tamanio)
+  # 
+  # for (i in 1:tamanio) {
+  #   assign(
+  #     x = nombre_archivo[[i]],
+  #     value = read_csv(
+  #       file = archivos_extraidos[[i]],
+  #       col_types = cols(.default = col_character())
+  #     )
+  #   )
+  # }
+  
+  # crea un objeto tipo lista
+  # fuente R for data science (2a ed.) sección 26.3.4
+  n_modulos <- archivos_extraidos |> 
+    set_names(nm = nombre_archivo) |> 
+    map( 
+      \(archivos_extraidos) # para añadir argumentos 
+      readr::read_csv(
+        archivos_extraidos, 
+        col_types = cols(.default = col_character())
+      )
+    ) 
+  
+  # eliminar archivos comprimidos -----
+  
+  unlink(
+    list.files(
+      path = tempdir(),
+      pattern = "\\.zip$|\\.csv$",
+      full.names = TRUE
+    )
+  )
+  
+  return(n_modulos)
+}
+```
+
+Como trabajaré con la tabla SDEM, ese será el módulo por defecto, se modifica
+
+```{r}
+obtener_n_enlaces <- function(year_actual, trimestre_actual, n_year)
+{
+  # datos de entrada -------
+  # resto de variables
+  year_final <- year_actual - n_year
+  year <- year_actual
+  
+  trimestre_final <- trimestre_actual
+  trimestre <- trimestre_actual
+  
+  i <- 1
+  tamanio <- trimestre_actual + ((n_year - 1) * 4) + (4 - trimestre_final + 1)
+  enlace <- "https://www.inegi.org.mx/contenidos/programas/enoe/15ymas/microdatos/"
+  
+  url <- vector(mode = "character", length = tamanio)
+  
+  # bucle -----
+  while (year_final <= year) {
+    
+    while (trimestre >= 1) {
+      
+      # https://www.inegi.org.mx/contenidos/programas/enoe/15ymas/microdatos/enoe_2026_trim1_csv.zip
+      
+      # obtener enlaces según el periodo
+      if (year >= 2023) {
+        url[[i]] <- paste(enlace, "enoe_", year, "_trim", trimestre, "_csv.zip", sep = "")
+      } else if ((year == 2020 & trimestre >= 3 ) | (year >= 2021 & year <= 2022)) {
+        url[[i]] <- paste(enlace, "enoe_n_", year, "_trim", trimestre, "_csv.zip", sep = "")
+      } else {
+        url[[i]] <- paste(enlace, year, "trim", trimestre, "_csv.zip", sep = "")
+      }
+      
+      # enlaces con casos especiales
+      # doble barra
+      if (year == 2024 & trimestre == 2) {
+        url[[i]] <- paste(enlace, "/enoe_", year, "_trim", trimestre, "_csv.zip", sep = "")
+      } else if (year == 2020 & trimestre == 2) {
+        # no existe enlace
+        url[[i]] <- paste("No existe enlace para el periodo", year, "trimestre", trimestre)
+      }
+      
+      if (year == year_final & trimestre == trimestre_actual) {
+        break
+      } else {
+        trimestre <- trimestre - 1 
+        i <- i + 1
+      }
+    } 
+    
+    trimestre <- 4
+    year <- year - 1
+  }
+  
+  return(url)
+}
+
+descargar_n_modulos <- function(year_actual, trimestre_actual, n_year = 4, modulo = "sdem")
+{
+  # obtener enlaces ----
+  url <- obtener_n_enlaces(year_actual, trimestre_actual, n_year)
+  
+  # crear archivos temporales -----
+  
+  tamanio <- length(url)
+  i <- vector(mode = "integer", length = tamanio)
+  archivos_temp <- vector(mode = "character", length = tamanio)
+  
+  for (i in 1:tamanio) {
+    archivos_temp[[i]] <- tempfile(fileext = ".zip")
+  }
+  
+  # descargar microdatos -----
+  
+  options(timeout = max(900, getOption("timeout")))
+  
+  i <- vector(mode = "integer", length = tamanio)
+  periodo_sn_enlace <- grep(
+    x = url,
+    pattern = "No existe enlace"
+  )
+  
+  for (i in 1:tamanio) {
+    if ( i != periodo_sn_enlace ) {
+      download.file(
+        url = url[[i]],
+        destfile = archivos_temp[[i]]
+      )
+    }
+  }
+  
+  # extraer módulo especificado -----
+  
+  tamanio <- length(archivos_temp)
+  i <- vector(mode = "integer", length = tamanio)
+  
+  for (i in 1:tamanio) {
+    
+    if ( i != periodo_sn_enlace ) {
+      microdatos <- unzip(
+        zipfile = archivos_temp[[i]],
+        list = TRUE,
+      )$Name
+      
+      unzip(
+        zipfile = archivos_temp[[i]],
+        list = FALSE,
+        files = grepv(modulo, microdatos, ignore.case = TRUE),
+        exdir = tempdir(),
+        overwrite = TRUE
+      )
+    }
+  }
+  
+  # carga -----
+  
+  # ruta
+  archivos_extraidos <- list.files(
+    path = tempdir(),
+    pattern = "\\.csv",
+    full.names = TRUE
+  )
+  
+  # nombre
+  nombre_archivo <- basename(archivos_extraidos)
+  
+  nombre_archivo <- sub(
+    x = nombre_archivo,
+    pattern = "\\.csv",
+    replacement = ""
+  )
+  
+  nombre_archivo <- sub(
+    x = nombre_archivo,
+    pattern = "ENOE_|ENOEN_",
+    replacement = ""
+  )
+  
+  # nombre_archivo <- tolower(nombre_archivo)
+  
+  # definir como tibbles
+  
+  # crea n objetos, según el número de archivos, tipo tibble
+  # tamanio <- length(archivos_extraidos)
+  # i <- vector(mode = "integer", length = tamanio)
+  # 
+  # for (i in 1:tamanio) {
+  #   assign(
+  #     x = nombre_archivo[[i]],
+  #     value = read_csv(
+  #       file = archivos_extraidos[[i]],
+  #       col_types = cols(.default = col_character())
+  #     )
+  #   )
+  # }
+  
+  # crea un objeto tipo lista
+  # fuente R for data science (2a ed.) sección 26.3.4
+  n_modulos <- archivos_extraidos |> 
+    set_names(nm = nombre_archivo) |> 
+    map( 
+      \(archivos_extraidos) # para añadir argumentos 
+      readr::read_csv(
+        archivos_extraidos, 
+        col_types = cols(.default = col_character())
+      )
+    ) 
+  
+  # eliminar archivos comprimidos -----
+  
+  unlink(
+    list.files(
+      path = tempdir(),
+      pattern = "\\.zip$|\\.csv$",
+      full.names = TRUE
+    )
+  )
+  
+  return(n_modulos)
+}
+```
+
+Se valida
+
+```{{r}}
+enoe <- descargar_n_modulos(year_actual = 2020, trimestre_actual = 1, n_year = 1)
+```
+
+Me arroja el siguiente error
+
+```
+Error en if (i != periodo_sn_enlace) {: argumento tiene longitud cero
+```
+
+Pero ¿por qué?
+
+```{r}
+url <- obtener_n_enlaces(2020, 1, 1)
+
+url
+
+periodo_sn_enlace <- grep(
+    x = url,
+    pattern = "No existe enlace"
+  )
+
+periodo_sn_enlace
+```
+
+El error está porque cuando no encuentra "No existe enlace" no devuelve 0 sino retorna un vector vacío
+
+```{r}
+x <- grepl(
+    x = url[[1]],
+    pattern = "No existe enlace"
+  )
+
+if (x) "Sí" else "No"
+```
+
+¿Cómo corregir?
+
+```{r}
+url
+
+x <- vector(length = length(url))
+
+!x[[1]]
+
+if ( is_empty(periodo_sn_enlace) ) periodo_sn_enlace <- 0
+
+periodo_sn_enlace
+```
+
+Se puede hacer de dos maneras
+
+```{r}
+grepl(
+    x = url,
+    pattern = "No existe enlace"
+  )
+```
+
+Hacer lo anterior dentro del bucle de forma iterativa
+
+```{{r}}
+for (i in 1:tamanio) {
+    periodo_sn_enlace <- grepl(
+          x = url[[i]],
+          pattern = "No existe enlace"
+        )
+    
+    if ( !periodo_sn_enlace[[i]] ) {
+      download.file(
+        url = url[[i]],
+        destfile = archivos_temp[[i]]
+      )
+    }
+  }
+
+```
+
+Recordemos que el operador SI realiza las operaciones si la condición es VERDADERO, por tanto cuando el elemento del vector `periodo_sn_enlace` devuelva FALSO porque ningún elemento del vector `url` contiene la expresión "No existe enlace", el operador NO (`!`) lo convertirá a VERDADERO y llevará a cabo las operaciones contenidas.
+
+Esta manera de expresar las condiciones no me gusta, lo hace (para mi gusto) menos legible para los humanos. Prefiero hacerlo de forma explícita. Por tanto, la otra opción es
+
+```{r}
+grep(
+    x = url,
+    pattern = "No existe enlace"
+  )
+```
+
+No devuelve 0 sino un vector vacío, existe la función `purrr::is_empyt` que devuelve VERDADERO si un vector está vacío
+
+```{r}
+x <- grep(
+    x = url,
+    pattern = "No existe enlace"
+  )
+
+purrr::is_empty(x)
+```
+
+Por tanto, puede asignarse un valor cualquiera si cumple dicha condición por ejemplo 0
+
+```{r}
+x <- grep(
+    x = url,
+    pattern = "No existe enlace"
+  )
+
+if ( purrr::is_empty(x) ) {x <- 0}
+
+x
+```
+
+Así puede incluirse en el bucle
+
+
+```{r}
+x <- grep(
+    x = url,
+    pattern = "No existe enlace"
+  )
+
+if ( purrr::is_empty(x) ) {x <- 0}
+
+for (i in 1:tamanio) {
+    if ( i != x ) {
+      download.file(
+        url = url[[i]],
+        destfile = archivos_temp[[i]]
+      )
+    }
+  }
+```
+
+Me gusta más esta manera, la hace más legible y entendible, por lo menos para mí
+
+Se modifica dicha cuestión en la función
+
+```{r}
+obtener_n_enlaces <- function(year_actual, trimestre_actual, n_year)
+{
+  # datos de entrada -------
+  # resto de variables
+  year_final <- year_actual - n_year
+  year <- year_actual
+  
+  trimestre_final <- trimestre_actual
+  trimestre <- trimestre_actual
+  
+  i <- 1
+  tamanio <- trimestre_actual + ((n_year - 1) * 4) + (4 - trimestre_final + 1)
+  enlace <- "https://www.inegi.org.mx/contenidos/programas/enoe/15ymas/microdatos/"
+  
+  url <- vector(mode = "character", length = tamanio)
+  
+  # bucle -----
+  while (year_final <= year) {
+    
+    while (trimestre >= 1) {
+      
+      # https://www.inegi.org.mx/contenidos/programas/enoe/15ymas/microdatos/enoe_2026_trim1_csv.zip
+      
+      # obtener enlaces según el periodo
+      if (year >= 2023) {
+        url[[i]] <- paste(enlace, "enoe_", year, "_trim", trimestre, "_csv.zip", sep = "")
+      } else if ((year == 2020 & trimestre >= 3 ) | (year >= 2021 & year <= 2022)) {
+        url[[i]] <- paste(enlace, "enoe_n_", year, "_trim", trimestre, "_csv.zip", sep = "")
+      } else {
+        url[[i]] <- paste(enlace, year, "trim", trimestre, "_csv.zip", sep = "")
+      }
+      
+      # enlaces con casos especiales
+      # doble barra
+      if (year == 2024 & trimestre == 2) {
+        url[[i]] <- paste(enlace, "/enoe_", year, "_trim", trimestre, "_csv.zip", sep = "")
+      } else if (year == 2020 & trimestre == 2) {
+        # no existe enlace
+        url[[i]] <- paste("No existe enlace para el periodo", year, "trimestre", trimestre)
+      }
+      
+      if (year == year_final & trimestre == trimestre_actual) {
+        break
+      } else {
+        trimestre <- trimestre - 1 
+        i <- i + 1
+      }
+    } 
+    
+    trimestre <- 4
+    year <- year - 1
+  }
+  
+  return(url)
+}
+
+descargar_n_modulos <- function(year_actual, trimestre_actual, n_year = 4, modulo = "sdem")
+{
+  # obtener enlaces ----
+  url <- obtener_n_enlaces(year_actual, trimestre_actual, n_year)
+  
+  # crear archivos temporales -----
+  
+  tamanio <- length(url)
+  i <- vector(mode = "integer", length = tamanio)
+  archivos_temp <- vector(mode = "character", length = tamanio)
+  
+  for (i in 1:tamanio) {
+    archivos_temp[[i]] <- tempfile(fileext = ".zip")
+  }
+  
+  # descargar microdatos -----
+  
+  options(timeout = max(900, getOption("timeout")))
+  
+  i <- vector(mode = "integer", length = tamanio)
+  # si ningún elemento contiene dicha expresión devuelve un vector vacío
+  periodo_sn_enlace <- grep(
+    x = url,
+    pattern = "No existe enlace"
+  )
+  
+  # si el vector está vacío le asigna valor 0
+  if (is_empty(periodo_sn_enlace)) {periodo_sn_enlace <- 0}
+  
+  for (i in 1:tamanio) {
+    if ( i != periodo_sn_enlace ) {
+      download.file(
+        url = url[[i]],
+        destfile = archivos_temp[[i]]
+      )
+    }
+  }
+  
+  # extraer módulo especificado -----
+  
+  tamanio <- length(archivos_temp)
+  i <- vector(mode = "integer", length = tamanio)
+  
+  for (i in 1:tamanio) {
+    
+    if ( i != periodo_sn_enlace ) {
+      microdatos <- unzip(
+        zipfile = archivos_temp[[i]],
+        list = TRUE,
+      )$Name
+      
+      unzip(
+        zipfile = archivos_temp[[i]],
+        list = FALSE,
+        files = grepv(modulo, microdatos, ignore.case = TRUE),
+        exdir = tempdir(),
+        overwrite = TRUE
+      )
+    }
+  }
+  
+  # carga -----
+  
+  # ruta
+  archivos_extraidos <- list.files(
+    path = tempdir(),
+    pattern = "\\.csv",
+    full.names = TRUE
+  )
+  
+  # nombre
+  nombre_archivo <- basename(archivos_extraidos)
+  
+  nombre_archivo <- sub(
+    x = nombre_archivo,
+    pattern = "\\.csv",
+    replacement = ""
+  )
+  
+  nombre_archivo <- sub(
+    x = nombre_archivo,
+    pattern = "ENOE_|ENOEN_",
+    replacement = ""
+  )
+  
+  # nombre_archivo <- tolower(nombre_archivo)
+  
+  # definir como tibbles
+  
+  # crea n objetos, según el número de archivos, tipo tibble
+  # tamanio <- length(archivos_extraidos)
+  # i <- vector(mode = "integer", length = tamanio)
+  # 
+  # for (i in 1:tamanio) {
+  #   assign(
+  #     x = nombre_archivo[[i]],
+  #     value = read_csv(
+  #       file = archivos_extraidos[[i]],
+  #       col_types = cols(.default = col_character())
+  #     )
+  #   )
+  # }
+  
+  # crea un objeto tipo lista
+  # fuente R for data science (2a ed.) sección 26.3.4
+  n_modulos <- archivos_extraidos |> 
+    set_names(nm = nombre_archivo) |> 
+    map( 
+      \(archivos_extraidos) # para añadir argumentos 
+      readr::read_csv(
+        archivos_extraidos, 
+        col_types = cols(.default = col_character())
+      )
+    ) 
+  
+  # eliminar archivos comprimidos -----
+  
+  unlink(
+    list.files(
+      path = tempdir(),
+      pattern = "\\.zip$|\\.csv$",
+      full.names = TRUE
+    )
+  )
+  
+  return(n_modulos)
+}
+```
+
+Se vuelve a validar
+
+```{r}
+enoe <- descargar_n_modulos(2021, 1, 1)
+
+names(enoe)
+```
+
+Listo! 
+
+Considerando el periodo donde no hay enlace, no arroja problemas
+
+Se vuelve a validar
+
+```{r}
+# remove(enoe)
+
+enoe <- descargar_n_modulos(2017, 4, 1)
+
+names(enoe)
+```
+
+Listo! Ya quedo!!!
+
+En resumen, la función final queda como sigue
+
+```{r}
+obtener_n_enlaces <- function(year_actual, trimestre_actual, n_year)
+{
+  # datos de entrada -------
+  # resto de variables
+  year_final <- year_actual - n_year
+  year <- year_actual
+  
+  trimestre_final <- trimestre_actual
+  trimestre <- trimestre_actual
+  
+  i <- 1
+  tamanio <- trimestre_actual + ((n_year - 1) * 4) + (4 - trimestre_final + 1)
+  enlace <- "https://www.inegi.org.mx/contenidos/programas/enoe/15ymas/microdatos/"
+  
+  url <- vector(mode = "character", length = tamanio)
+  
+  # bucle -----
+  while (year_final <= year) {
+    
+    while (trimestre >= 1) {
+      
+      # https://www.inegi.org.mx/contenidos/programas/enoe/15ymas/microdatos/enoe_2026_trim1_csv.zip
+      
+      # obtener enlaces según el periodo
+      if (year >= 2023) {
+        url[[i]] <- paste(enlace, "enoe_", year, "_trim", trimestre, "_csv.zip", sep = "")
+      } else if ((year == 2020 & trimestre >= 3 ) | (year >= 2021 & year <= 2022)) {
+        url[[i]] <- paste(enlace, "enoe_n_", year, "_trim", trimestre, "_csv.zip", sep = "")
+      } else {
+        url[[i]] <- paste(enlace, year, "trim", trimestre, "_csv.zip", sep = "")
+      }
+      
+      # enlaces con casos especiales
+      # doble barra
+      if (year == 2024 & trimestre == 2) {
+        url[[i]] <- paste(enlace, "/enoe_", year, "_trim", trimestre, "_csv.zip", sep = "")
+      } else if (year == 2020 & trimestre == 2) {
+        # no existe enlace
+        url[[i]] <- paste("No existe enlace para el periodo", year, "trimestre", trimestre)
+      }
+      
+      if (year == year_final & trimestre == trimestre_actual) {
+        break
+      } else {
+        trimestre <- trimestre - 1 
+        i <- i + 1
+      }
+    } 
+    
+    trimestre <- 4
+    year <- year - 1
+  }
+  
+  return(url)
+}
+
+descargar_n_modulos <- function(year_actual, trimestre_actual, n_year = 4, modulo = "sdem")
+{
+  # obtener enlaces ----
+  url <- obtener_n_enlaces(year_actual, trimestre_actual, n_year)
+  
+  # crear archivos temporales -----
+  
+  tamanio <- length(url)
+  i <- vector(mode = "integer", length = tamanio)
+  archivos_temp <- vector(mode = "character", length = tamanio)
+  
+  for (i in 1:tamanio) {
+    archivos_temp[[i]] <- tempfile(fileext = ".zip")
+  }
+  
+  # descargar microdatos -----
+  
+  options(timeout = max(900, getOption("timeout")))
+  
+  i <- vector(mode = "integer", length = tamanio)
+  # si ningún elemento contiene dicha expresión devuelve un vector vacío
+  periodo_sn_enlace <- grep(
+    x = url,
+    pattern = "No existe enlace"
+  )
+  
+  # si el vector está vacío le asigna valor 0
+  if (is_empty(periodo_sn_enlace)) {periodo_sn_enlace <- 0}
+  
+  for (i in 1:tamanio) {
+    if ( i != periodo_sn_enlace ) {
+      download.file(
+        url = url[[i]],
+        destfile = archivos_temp[[i]]
+      )
+    }
+  }
+  
+  # extraer módulo especificado -----
+  
+  tamanio <- length(archivos_temp)
+  i <- vector(mode = "integer", length = tamanio)
+  
+  for (i in 1:tamanio) {
+    
+    if ( i != periodo_sn_enlace ) {
+      microdatos <- unzip(
+        zipfile = archivos_temp[[i]],
+        list = TRUE,
+      )$Name
+      
+      unzip(
+        zipfile = archivos_temp[[i]],
+        list = FALSE,
+        files = grepv(modulo, microdatos, ignore.case = TRUE),
+        exdir = tempdir(),
+        overwrite = TRUE
+      )
+    }
+  }
+  
+  # carga -----
+  
+  # ruta
+  archivos_extraidos <- list.files(
+    path = tempdir(),
+    pattern = "\\.csv",
+    full.names = TRUE
+  )
+  
+  # nombre
+  nombre_archivo <- basename(archivos_extraidos)
+  
+  nombre_archivo <- sub(
+    x = nombre_archivo,
+    pattern = "\\.csv",
+    replacement = ""
+  )
+  
+  nombre_archivo <- sub(
+    x = nombre_archivo,
+    pattern = "ENOE_|ENOEN_",
+    replacement = ""
+  )
+  
+  # nombre_archivo <- tolower(nombre_archivo)
+  
+  # definir como tibbles
+  
+  # crea n objetos, según el número de archivos, tipo tibble
+  # tamanio <- length(archivos_extraidos)
+  # i <- vector(mode = "integer", length = tamanio)
+  # 
+  # for (i in 1:tamanio) {
+  #   assign(
+  #     x = nombre_archivo[[i]],
+  #     value = read_csv(
+  #       file = archivos_extraidos[[i]],
+  #       col_types = cols(.default = col_character())
+  #     )
+  #   )
+  # }
+  
+  # crea un objeto tipo lista
+  # fuente R for data science (2a ed.) sección 26.3.4
+  n_modulos <- archivos_extraidos |> 
+    set_names(nm = nombre_archivo) |> 
+    map( 
+      \(archivos_extraidos) # para añadir argumentos 
+      readr::read_csv(
+        archivos_extraidos, 
+        col_types = cols(.default = col_character())
+      )
+    ) 
+  
+  # eliminar archivos comprimidos -----
+  
+  unlink(
+    list.files(
+      path = tempdir(),
+      pattern = "\\.zip$|\\.csv$",
+      full.names = TRUE
+    )
+  )
+  
+  return(n_modulos)
+}
+```
+
+Se añade al script correspondiente
+
+Se validan cambios
+
+```{r}
+descargar_modulo_n(2025, 2)
+```
+
+```{r}
+enoe <- descargar_n_modulos(2014, 4, 1)
+
+names(enoe)
+```
+
+Listo!!!
