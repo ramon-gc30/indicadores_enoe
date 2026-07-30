@@ -224,7 +224,8 @@ descargar_n_modulos <- function(year_actual, trimestre_actual, n_year = 4, modul
   archivos_extraidos <- list.files(
     path = tempdir(),
     pattern = "\\.csv",
-    full.names = TRUE
+    full.names = TRUE,
+    ignore.case = TRUE
   )
   
   # nombre
@@ -233,13 +234,15 @@ descargar_n_modulos <- function(year_actual, trimestre_actual, n_year = 4, modul
   nombre_archivo <- sub(
     x = nombre_archivo,
     pattern = "\\.csv",
-    replacement = ""
+    replacement = "",
+    ignore.case = TRUE
   )
   
   nombre_archivo <- sub(
     x = nombre_archivo,
     pattern = "ENOE_|ENOEN_",
-    replacement = ""
+    replacement = "",
+    ignore.case = TRUE
   )
   
   # nombre_archivo <- tolower(nombre_archivo)
