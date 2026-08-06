@@ -1,0 +1,108 @@
+---
+date: "30-07-2026"
+format: gfm
+---
+
+Se intentará descargar la tabla SDEM de los periodos requeridos para realizar los cuadros y figuras del reporte trimestral del INEGI: 2020-1T a 2026-1T.
+
+Para dicho periodo se realizan las siguientes figuras:
+
+* Gráfica 1 Población ocupada primer trimestre de 2022–primer trimestre de 2026
+
+* Gráfica 2 Tasa de subocupación primer trimestre de 2022–primer trimestre de 2026
+
+* Gráfica 3 Tasa de condiciones críticas de ocupación con base en el salario mínimo equivalente primer trimestre de 2022–primer trimestre de 2026
+
+* Gráfica 4 Tasa de desocupación primer trimestre de 2022–primer trimestre de 2026
+
+Para el caso de los cuadros estadísticos solamente se compara el periodo actual con respecto al mismo periodo del año previo:
+
+* Cuadro 1
+Población de 15 años y más, según condición de actividad económica,
+ocupación, disponibilidad para trabajar y sexo
+primer trimestre de 2025 y 2026
+
+* Cuadro 2
+Características de la población ocupada, según condición
+primer trimestre de 2025 y 2026
+
+* Cuadro 3
+Población ocupada informal, según sexo y tipo de unidad económica empleadora
+primer trimestre de 2025 y 2026
+
+* Cuadro 4
+Tasas complementarias, según sexo
+primer trimestre de 2025 y 2026
+
+El resto de los cuadros solamente se analiza el periodo actual:
+
+* Diagrama 1
+Distribución de la población en edad de trabajar
+primer trimestre de 2026
+
+* Cuadro 5
+Población y tasas complementarias de ocupación y desocupación,
+según entidad federativa
+primer trimestre de 2026
+
+* Cuadro 6
+Población y tasas complementarias de ocupación y desocupación,
+según área metropolitana
+primer trimestre de 2026
+
+```{r}
+#| label: setup
+#| message: false
+#| warning: false
+
+library(tidyverse)
+library(here)
+
+source(here::here("scripts", "0_funciones.R"))
+```
+
+En primer lugar, se descargará el módulo SDEM de dicho periodo (2020T1-2026T1):
+
+```{r}
+enoe <- descargar_n_modulos(2026, 1)
+```
+
+Se valida
+
+```{r}
+names(enoe)
+```
+
+Ahora se extraen los elementos contenidos en la lista
+
+```{r}
+list2env(enoe, envir = .GlobalEnv)
+```
+
+Posteriormente, se elimina la lista creada
+
+```{r}
+remove(enoe)
+```
+
+Se valida
+
+```{r}
+objects(pattern = "enoe")
+
+objects(pattern = "sdem|SDEM")
+```
+
+Necesitaría tres cosas:
+
+1. Aplicar el criterio general para calcular tasas
+2. Estimar total con `fac.tri`
+3. Calcular tasas
+
+Aquello para cada una de las tablas obtenidas. ¿Cómo? Se me ocurre utilizar `map` para cada cuestión, crear los objetos, eliminar la lista y volverlo a repetir. 
+
+Otra se me ocurre unir las tablas que comparten la misma cantidad de variables y desde ahí aplicar el proceso iterativo. Aunque podría no ser la mejor opción dado que parece que no comparten el mismo nombre. 
+
+Otra podría seleccionar solamente las variables de interés y hacer los procedimientos requeridos. 
+
+Duda ¿puedo trabajar con los verbos de `dplyr` dentro de listas? 
