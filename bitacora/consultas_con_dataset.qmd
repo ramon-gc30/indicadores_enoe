@@ -1,0 +1,270 @@
+---
+date: "03-08-2026"
+format: gfm
+---
+
+En `bitacora/csv_arrow_a_parquet_sdem_4_years.qmd`, se pudo pasar de archivos CSV a parquet. Aquello fue posible dado que se guardaron en el directorio del proyecto.
+
+Ahora se harán algunas consultas de interés.
+
+```{r}
+#| label: setup
+#| message: false
+#| warning: false
+
+library(tidyverse)
+library(arrow)
+library(here)
+
+archivos_parquet <- list.files(
+  file.path(here::here(), "datos"), 
+  pattern = "\\.parquet$", 
+  full.names = TRUE
+)
+
+modulos_dataset <- open_dataset(
+  sources = archivos_parquet,
+  format = "parquet"
+)
+```
+
+En primer lugar, se aplicará el filtro del criterio general. Recordemos que el criterio general es
+
+```{{r}}
+# 3. aplicar criterio general (INEGI, 2023:28):
+datos |>
+  filter(r_def == 0, c_res == 1 | c_res == 3, between(eda, 15, 98))
+```
+
+Se valida el tipo de dato de dichas variables (columnas)
+
+```{r}
+schema(modulos_dataset)
+```
+
+Tanto `r_def` como `c_res` son enteros, mientras que `eda es cadena. Se intenta pasar a entero y aplicar el criterio general
+
+```{{r}}
+modulos_dataset <- modulos_dataset |> 
+  mutate(edad = as.integer(eda)) |> 
+  filter(r_def == 0 & (c_res == 1 | c_res == 3) & between(edad, 15, 98))
+```
+
+Sí es exitosa
+
+Ahora se calcula la PEA por archivo
+
+```{{r}}
+datos_proc <- modulos_dataset |> 
+  mutate(archivo = add_filename()) |> 
+  compute() |> 
+  group_by(archivo) |> 
+  summarise(
+    pea = sum(fac_tri[clase1 == 1])
+  )
+
+datos_proc |> 
+  collect()
+```
+
+Arroja error 
+
+```
+Error in `compute()`:
+! Invalid: Failed to parse string: ' ' as a scalar of type int32
+Run `rlang::last_trace()` to see where the error occurred.
+```
+
+Se valida
+
+```{{r}}
+modulos_dataset |> 
+  compute()
+```
+
+Arroja el mismo error
+
+```
+Error in `compute()`:
+! Invalid: Failed to parse string: ' ' as a scalar of type int32
+Run `rlang::last_trace()` to see where the error occurred.
+```
+
+Entonces no puedo cambiar el tipo de dato mientras opere en el conjunto de datos, tendré que hacer el filtro como si fuera de tipo caracter.
+
+```{{r}}
+modulos_dataset |> 
+  filter(
+    r_def == 0 & 
+      (c_res == 1 | c_res == 3) & 
+      (
+        eda = "15" | 
+        eda = "16" | 
+        eda = "17" | 
+        eda = "18" | 
+        eda = "19" | 
+        eda = "20" | 
+        eda = "21" | 
+        eda = "22" | 
+        eda = "23" | 
+        eda = "24" | 
+        eda = "25" | 
+        eda = "26" | 
+        eda = "27" | 
+        eda = "28" | 
+        eda = "29" | 
+        eda = "30" | 
+        eda = "31" | 
+        eda = "32" | 
+        eda = "33" | 
+        eda = "34" | 
+        eda = "35" | 
+        eda = "36" | 
+        eda = "37" | 
+        eda = "38" | 
+        eda = "39" | 
+        eda = "40" | 
+        eda = "41" | 
+        eda = "42" | 
+        eda = "43" | 
+        eda = "44" | 
+        eda = "45" | 
+        eda = "46" | 
+        eda = "47" | 
+        eda = "48" | 
+        eda = "49" | 
+        eda = "50" | 
+        eda = "51" | 
+        eda = "52" | 
+        eda = "53" | 
+        eda = "54" | 
+        eda = "55" | 
+        eda = "56" | 
+        eda = "57" | 
+        eda = "58" | 
+        eda = "59" | 
+        eda = "60" | 
+        eda = "61" | 
+        eda = "62" | 
+        eda = "63" | 
+        eda = "64" | 
+        eda = "65" | 
+        eda = "66" | 
+        eda = "67" | 
+        eda = "68" | 
+        eda = "69" | 
+        eda = "70" | 
+        eda = "71" | 
+        eda = "72" | 
+        eda = "73" | 
+        eda = "74" | 
+        eda = "75" | 
+        eda = "76" | 
+        eda = "77" | 
+        eda = "78" | 
+        eda = "79" | 
+        eda = "80" | 
+        eda = "81" | 
+        eda = "82" | 
+        eda = "83" | 
+        eda = "84" | 
+        eda = "85" | 
+        eda = "86" | 
+        eda = "87" | 
+        eda = "88" | 
+        eda = "89" | 
+        eda = "90" | 
+        eda = "91" | 
+        eda = "92" | 
+        eda = "93" | 
+        eda = "94" | 
+        eda = "95" | 
+        eda = "96" | 
+        eda = "97" | 
+        eda = "98" 
+      )
+  )
+```
+
+Arroja este error
+
+```
+9.
+stop(err)
+8.
+abandon_ship(e, parent)
+7.
+value[[3L]](cond)
+6.
+tryCatchOne(expr, names, parentenv, handlers[[1L]])
+5.
+tryCatchList(expr, classes, parentenv, handlers)
+4.
+tryCatch(eval(expr, parent), arrow_not_supported = function(e) abandon_ship(e,
+parent))
+3.
+try_arrow_dplyr({
+apply_filter_impl(.data, ..., .by = {
+{
+.by ...
+2.
+filter.Dataset(modulos_dataset, r_def == 0 & (c_res == 1 | c_res ==
+3) & (eda = "15" | eda = "16" | eda = "17" | eda = "18" |
+eda = "19" | eda = "20" | eda = "21" | eda = "22" | eda = "23" |
+eda = "24" | eda = "25" | eda = "26" | eda = "27" | eda = "28" | ...
+1.
+filter(modulos_dataset, r_def == 0 & (c_res == 1 | c_res == 3) &
+(eda = "15" | eda = "16" | eda = "17" | eda = "18" | eda = "19" |
+eda = "20" | eda = "21" | eda = "22" | eda = "23" | eda = "24" |
+eda = "25" | eda = "26" | eda = "27" | eda = "28" | eda = "29" | ...
+
+```
+
+Se intenta con un campo precodificado. En específico con `eda5c`. Por fortuna ese campo es tipo entero. Puedo aplicar `between`
+
+```{r}
+modulos_dataset |> 
+  filter(r_def == 0 & (c_res == 1 | c_res == 3) & between(eda5c, 1, 4))
+```
+
+Sí se pudo. Se vuelve a validar PEA por archivo.
+
+```{{r}}
+datos_proc <- modulos_dataset |> 
+  filter(r_def == 0 & (c_res == 1 | c_res == 3) & between(eda5c, 1, 4)) |> 
+  mutate(archivo = add_filename()) |> 
+  compute() |> 
+  group_by(archivo) |> 
+  summarise(pea = sum(fac_tri[clase1 == 1])) 
+
+datos_proc |> 
+  collect()
+```
+
+Sí ejecuta la instrucción, pero aparece la siguiente advertencia
+
+```
+Warning:
+In sum(fac_tri[clase1 == 1]): 
+ℹ Expression not supported in Arrow
+→ Pulling data into R
+```
+
+Entonces hay que hacerlo con `filter`
+
+```{r}
+datos_proc <- modulos_dataset |> 
+  filter(r_def == 0 & (c_res == 1 | c_res == 3) & between(eda5c, 1, 4)) |> 
+  mutate(archivo = add_filename()) |> 
+  compute() |> 
+  filter(clase1 == 1) |> 
+  group_by(archivo) |> 
+  summarise(pea = sum(fac_tri)) 
+
+datos_proc |> 
+  collect()
+```
+
+Y ya no arroja ningún error
+
+Entonces así tiene que ser el procedimiento. No filtrar en la misma consulta, sino realizar subconsultas y calcular las tasas de los tibbles resultantes.
