@@ -1,0 +1,543 @@
+---
+date: "04-08-2026"
+format: gfm
+---
+
+En `bitacora/consultas_con_dataset.qmd`, se realizaron algunas consultas para validar la ejecución del conjunto de datos. En este documento, se obtendrán los datos necesarios para la realización de figuras y cuadros.
+
+```{r}
+#| label: setup
+#| message: false
+#| warning: false
+
+library(tidyverse)
+library(arrow)
+library(here)
+
+archivos_parquet <- list.files(
+  file.path(here::here(), "datos"), 
+  pattern = "\\.parquet$", 
+  full.names = TRUE
+)
+
+modulos_dataset <- open_dataset(
+  sources = archivos_parquet,
+  format = "parquet"
+)
+```
+
+
+Los cuadros y figuras a replicar son las siguientes:
+
+Periodo 2020-1T a 2026-1T.
+
+Figuras: 
+
+* Gráfica 1 Población ocupada primer trimestre de 2022–primer trimestre de 2026
+* Gráfica 2 Tasa de subocupación primer trimestre de 2022–primer trimestre de 2026
+* Gráfica 3 Tasa de condiciones críticas de ocupación con base en el salario mínimo equivalente primer trimestre de 2022–primer trimestre de 2026
+* Gráfica 4 Tasa de desocupación primer trimestre de 2022–primer trimestre de 2026
+
+Cuadros:
+
+* Cuadro 1 Población de 15 años y más, según condición de actividad económica, ocupación, disponibilidad para trabajar y sexo primer trimestre de 2025 y 2026
+* Cuadro 2 Características de la población ocupada, según condición primer trimestre de 2025 y 2026
+* Cuadro 3 Población ocupada informal, según sexo y tipo de unidad económica empleadora primer trimestre de 2025 y 2026
+* Cuadro 4 Tasas complementarias, según sexo primer trimestre de 2025 y 2026
+
+El resto de los cuadros solamente se analiza el periodo actual:
+
+* Diagrama 1 Distribución de la población en edad de trabajar primer trimestre de 2026
+* Cuadro 5 Población y tasas complementarias de ocupación y desocupación, según entidad federativa primer trimestre de 2026
+* Cuadro 6 Población y tasas complementarias de ocupación y desocupación, según área metropolitana primer trimestre de 2026
+
+Es decir, en el periodo de interés se requiere:
+
+* Población ocupada: `clase2 = 1`
+* Tasa de subocupación: `sub_o = 1 / clase2 = 1`
+* TCCO `tcco <> 0 / clase2 = 1`
+* Tasa de desocupación: `clase2 = 2 / clase1 = 1`
+
+En el periodo 2025-2026, se requiere:
+
+* PEA y PNEA: `clase1 = 1` y `clase1 = 2`
+* Ocupada y desocupada: `clase2 = 1` y `clase2 = 2`
+* Disponible y no disponible: `clase2 = 3` y `clase1 = 4`
+
+Agregada y desgregada por sexo
+
+* Población ocupada por:
+  * Sector económico: agregado y desagregado: `rama_est1` y `rama_est2`
+  * Posición en la ocupación: `pos_ocu`
+  * Nivel de ingresos: `ing7c`
+  * Duración de la jornada laboral: `dur_est`
+  * Ámbito y tamaño de la unidad económica: `ambito1` y `ambito2`
+  
+* Población ocupada informal (`MH_FIL2`) agregado y desagregado por sexo
+
+* Tasas complementarias agregado y desagregado por sexo
+
+En el periodo 2026:
+
+* Pob 15 y más
+* PEA y PNEA
+* Población ocupada y desocupada
+* Tasas complementarias 
+
+Desagregado por entidad y áreas metropolitanas
+
+Tasas complementarias:
+
+* TP: PEA / P15yMAS
+* TD: Desocupación / PEA
+* TOPD:  / PEA
+* TPG: / PEA
+* TTA: / PO
+* TSUB: / PO
+* TCCO: / PO
+* TIL1: / PO
+* TOSI1: / PO
+* TIL2: / PONA
+* TOSI2: / PONA
+
+Entonces para todo el periodo solamente requiero:
+
+* PO
+* PSUB
+* PCCO
+* PD
+
+Por ahí empecemos
+
+En primer lugar, apliquemos el criterio general
+
+```{r}
+consulta_general <- modulos_dataset |> 
+  # filter(r_def == 0 & (c_res == 1 | c_res == 3) & between(eda5c, 1, 4))
+  # se considera edad no especificada para mayores de 12 años, es decir eda = 98
+  filter(r_def == 0 & (c_res == 1 | c_res == 3) & eda5c != 0)
+```
+
+Ahora obtenemos la PEA en cada periodo:
+
+```{r}
+pea_4years <- consulta_general |> 
+  filter(clase1 == 1) |> 
+  mutate(archivo = add_filename()) |> 
+  compute() |> 
+  group_by(archivo) |> 
+  summarise(pea = sum(fac_tri)) |> 
+  collect()
+```
+
+Se valida
+
+```{r}
+pea_4years
+```
+
+Ahora obtenemos la población ocupada
+
+```{r}
+ocupada_4years <- consulta_general |> 
+  filter(clase2 == 1) |> 
+  mutate(archivo = add_filename()) |> 
+  compute() |> 
+  group_by(archivo) |> 
+  summarise(ocupada = sum(fac_tri)) |> 
+  collect()
+```
+
+Se valida
+
+```{r}
+ocupada_4years
+```
+
+Población subocupada
+
+```{r}
+psub_4years <- consulta_general |> 
+  filter(sub_o == 1) |> 
+  mutate(archivo = add_filename()) |> 
+  compute() |> 
+  group_by(archivo) |> 
+  summarise(psub = sum(fac_tri)) |> 
+  collect()
+```
+
+Se valida
+
+```{r}
+psub_4years
+```
+
+PCCO
+
+Primero se requiere saber los valores únicos de `TCCO`
+
+```{r}
+consulta_general |> 
+  distinct(tcco) |> 
+  collect()
+```
+
+Entonces se realiza el procedimiento
+
+```{r}
+pcco_4years <- consulta_general |> 
+  filter(tcco != 0) |> 
+  mutate(archivo = add_filename()) |> 
+  compute() |> 
+  group_by(archivo) |> 
+  summarise(pcco = sum(fac_tri)) |> 
+  collect()
+```
+
+Se valida
+
+```{r}
+pcco_4years
+```
+
+Y por último, población desocupada
+
+```{r}
+pd_4years <- consulta_general |> 
+  filter(clase2 == 2) |> 
+  mutate(archivo = add_filename()) |> 
+  compute() |> 
+  group_by(archivo) |> 
+  summarise(pd = sum(fac_tri)) |> 
+  collect()
+```
+
+Se valida
+
+```{r}
+pd_4years
+```
+
+Listo! Ahora se filtra conjunto de datos para trabajar solamente con el periodo 2025-1T y 2026-1T
+
+Se valida
+
+```{r}
+ocupada_4years |> 
+  # filter(grepl("T122", archivo))
+  filter(str_detect(archivo, "T122"))
+```
+
+`grepl` y `str_detect` son equivalentes. Ambos son aceptados por Arrow.
+
+Nos quedamos con `str_detect` para no salirnos del tidyverse.
+
+```{r}
+ocupada_4years |> 
+  # filter(str_detect("T125|T126", archivo))
+  filter(grepl("T125|T126", archivo))
+```
+
+`str_detect` busca una subcadena, mientras que `grepl` un patrón de coincidencia. E
+
+`stri_subset` devuelve los elementos coincidentes del vector y nosotros buscamos que devuelva un valor lógico
+
+El similar a `grepl` que busca patrones de coincidencia, sería `stringi::stri_detect`
+
+```{r}
+ocupada_4years |> 
+  filter(stri_detect(archivo, regex =  "T125|T126"))
+```
+
+Pero dicha función no es aceptada, de momento, dentro de arrow. Por tanto, nos quedamos con `grepl`
+
+```{r}
+ocupada_4years |> 
+  filter(grepl("T125|T126", archivo))
+```
+
+Por tanto, la consulta para el periodo 2025-2026 queda así
+
+```{{r}}
+consulta_general |> 
+  filter(grepl("T125|T126", archivo))
+```
+
+Mejor modifico el conjunto de datos de entrada
+
+```{r}
+archivos_parquet <- list.files(
+  file.path(here::here(), "datos"),
+  pattern = "T125|T126",
+  full.names = TRUE
+)
+
+archivos_parquet
+```
+
+Se vuelve a cargar el conjunto de datos
+
+```{r}
+modulos_dataset <- open_dataset(
+  sources = archivos_parquet,
+  format = "parquet"
+)
+
+modulos_dataset
+```
+
+Aplicamos el criterio general
+
+```{r}
+consulta_general <- modulos_dataset |> 
+  filter(r_def == 0 & (c_res == 1 | c_res == 3) & between(eda5c, 1, 4))
+```
+
+Obtenemos los datos requeridos
+
+PEA y PNEA
+
+```{r}
+clase1_1year <- consulta_general |> 
+  mutate(archivo = add_filename()) |> 
+  compute() |> 
+  group_by(archivo, clase1) |> 
+  summarise(tot_clase1 = sum(fac_tri)) |> 
+  collect()
+```
+
+Se valida
+
+```{r}
+clase1_1year
+```
+
+PO y PD
+
+```{r}
+clase2_1year <- consulta_general |> 
+  mutate(archivo = add_filename()) |> 
+  compute() |> 
+  group_by(archivo, clase1, clase2) |> 
+  summarise(tot_clase2 = sum(fac_tri)) |> 
+  collect()
+```
+
+Se valida
+
+```{r}
+clase2_1year
+```
+
+Sector económico
+
+```{r}
+sector_eco1_1year <- consulta_general |> 
+  filter(clase2 == 1) |> 
+  mutate(archivo = add_filename()) |> 
+  compute() |> 
+  group_by(archivo, rama_est1) |> 
+  summarise(tot_sec1 = sum(fac_tri)) |> 
+  collect()
+```
+
+Se valida
+
+```{r}
+sector_eco1_1year
+```
+
+Desagregado
+
+```{r}
+sector_eco2_1year <- consulta_general |> 
+  filter(clase2 == 1) |> 
+  mutate(archivo = add_filename()) |> 
+  compute() |> 
+  group_by(archivo, rama_est1, rama_est2) |> 
+  summarise(tot_sec2 = sum(fac_tri)) |> 
+  collect()
+```
+
+Se valida
+
+```{r}
+sector_eco2_1year
+```
+
+* Posición en la ocupación: `pos_ocu`
+
+```{r}
+pos_ocu_1year <- consulta_general |> 
+  filter(clase2 == 1) |> 
+  mutate(archivo = add_filename()) |> 
+  compute() |> 
+  group_by(archivo, pos_ocu) |> 
+  summarise(tot_pos = sum(fac_tri)) |> 
+  collect()
+```
+
+Se valida
+
+```{r}
+pos_ocu_1year
+```
+
+* Nivel de ingresos: `ing7c`
+
+```{r}
+nivel_ing_1year <- consulta_general |> 
+  filter(clase2 == 1) |> 
+  mutate(archivo = add_filename()) |> 
+  compute() |> 
+  group_by(archivo, ing7c) |> 
+  summarise(tot_ing = sum(fac_tri)) |> 
+  collect()
+```
+
+Se valida
+
+```{r}
+nivel_ing_1year
+```
+
+* Duración de la jornada laboral: `dur_est`
+
+```{r}
+jornada_1year <- consulta_general |> 
+  filter(clase2 == 1) |> 
+  mutate(archivo = add_filename()) |> 
+  compute() |> 
+  group_by(archivo, dur_est) |> 
+  summarise(tot_jor = sum(fac_tri)) |> 
+  collect()
+```
+
+Se valida
+
+```{r}
+jornada_1year
+```
+
+* Ámbito y tamaño de la unidad económica: `ambito1` y `ambito2`
+
+```{r}
+ambito1_1year <- consulta_general |> 
+  filter(clase2 == 1) |> 
+  mutate(archivo = add_filename()) |> 
+  compute() |> 
+  group_by(archivo, ambito1) |> 
+  summarise(tot_amb1 = sum(fac_tri)) |> 
+  collect()
+```
+
+Se valida
+
+```{r}
+ambito1_1year
+```
+
+```{r}
+ambito2_1year <- consulta_general |> 
+  filter(clase2 == 1) |> 
+  mutate(archivo = add_filename()) |> 
+  compute() |> 
+  group_by(archivo, ambito2) |> 
+  summarise(tot_amb2 = sum(fac_tri)) |> 
+  collect()
+```
+
+Se valida
+
+```{r}
+ambito2_1year
+```
+
+Falta por sexo
+
+```{r}
+sex_clase1_1year <- consulta_general |> 
+  mutate(archivo = add_filename()) |> 
+  compute() |> 
+  group_by(archivo, sex, clase1) |> 
+  summarise(tot_sex_c1 = sum(fac_tri)) |> 
+  collect()
+```
+
+Se valida
+
+```{r}
+sex_clase1_1year
+```
+
+```{r}
+sex_clase2_1year <- consulta_general |> 
+  mutate(archivo = add_filename()) |> 
+  compute() |> 
+  group_by(archivo, sex, clase1, clase2) |> 
+  summarise(tot_sex_c2 = sum(fac_tri)) |> 
+  collect()
+```
+
+Se valida
+
+```{r}
+sex_clase2_1year
+```
+
+* Población ocupada informal (`MH_FIL2`) agregado y desagregado por sexo
+
+```{r}
+consulta_general |> 
+  distinct(mh_fil2) |> 
+  collect()
+```
+
+```{r}
+ocu_inf_1year <- consulta_general |> 
+  filter(emp_ppal == 1 &  mh_fil2 != 0 ) |> 
+  mutate(archivo = add_filename()) |> 
+  compute() |> 
+  group_by(archivo, mh_fil2) |> 
+  summarise(tot_ocu_inf = sum(fac_tri)) |> 
+  collect()
+```
+
+Se valida
+
+```{r}
+ocu_inf_1year
+```
+
+Mis cifras no coinciden con las reportas por el INEGI ¿por qué?
+
+Por el criterio general aplicado
+
+```{{r}}
+consulta_general <- modulos_dataset |> 
+  filter(r_def == 0 & (c_res == 1 | c_res == 3) & between(eda5c, 1, 4))
+```
+
+El valor 5 es no especificado, pero puede haber no especificado menores a 12 años (valor 99 en `eda`) o mayores a 12 años (valor 98 en `eda`).
+
+Se valida volviendo a cargar los archivos de 2025 y 2026.
+
+```{r}
+modulos_dataset |> 
+  filter(eda5c == 5) |> 
+  distinct(eda) |> 
+  collect()
+```
+
+Por tanto, debe considerarse
+
+```{r}
+modulos_dataset |> 
+  distinct(eda5c) |> 
+  collect()
+```
+
+El filtro debe ser `eda5c != 0`.
+
+Se modifica dicho filtro, y se vuelven a ejecutar los códigos en un nuevo documento.
+
