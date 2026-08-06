@@ -3,3 +3,7 @@
 .Rhistory
 .RData
 .Ruserdata
+
+# archivos descargados y exportados
+*.csv
+*.parquet
