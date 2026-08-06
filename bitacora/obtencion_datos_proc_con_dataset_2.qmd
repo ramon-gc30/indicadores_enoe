@@ -1,0 +1,142 @@
+---
+date: "04-08-206"
+format: gfm
+---
+
+Este documento es la continuación de `bitacora/obtencion_datos_proc_con_dataset.qmd`, en el cual se modifica el filtro correspondiente al criterio general y las consultas a realizar.
+
+```{r}
+#| label: setup
+#| message: false
+#| warning: false
+
+library(tidyverse)
+library(arrow)
+library(here)
+
+archivos_parquet <- list.files(
+  file.path(here::here(), "datos"), 
+  pattern = "\\.parquet$", 
+  full.names = TRUE
+)
+
+modulos_dataset <- open_dataset(
+  sources = archivos_parquet,
+  format = "parquet"
+)
+```
+
+Criterio general que selecciona a la población de 15 años y más
+
+```{r}
+pob_15ymas <- modulos_dataset |> 
+  # filter(r_def == 0 & (c_res == 1 | c_res == 3) & between(eda5c, 1, 4))
+  # se considera edad no especificada para mayores de 12 años, es decir eda = 98
+  filter(r_def == 0 & (c_res == 1 | c_res == 3) & eda5c != 0)
+```
+
+Total
+
+```{r}
+pob_total <- pob_15ymas |> 
+  mutate(archivo = add_filename()) |> 
+  compute() |> 
+  group_by(archivo) |> 
+  summarise(tot = sum(fac_tri)) |> 
+  collect()
+
+pob_total
+```
+
+PEA y PNEA
+
+```{r}
+clase1_4years <- pob_15ymas |> 
+  mutate(archivo = add_filename()) |> 
+  compute() |> 
+  group_by(archivo, clase1) |> 
+  summarise(tot = sum(fac_tri)) |> 
+  collect()
+```
+
+Se valida
+
+```{r}
+clase1_4years
+```
+
+Ahora sí las cifras coinciden
+
+PO y PD
+
+```{r}
+clase2_4years <- pob_15ymas |> 
+  mutate(archivo = add_filename()) |> 
+  compute() |> 
+  group_by(archivo, clase2) |> 
+  summarise(tot = sum(fac_tri)) |> 
+  collect()
+```
+
+Se valida
+
+```{r}
+clase2_4years
+```
+
+Subocupación
+
+```{r}
+psub_4years <- pob_15ymas |> 
+  filter(sub_o == 1) |> 
+  mutate(archivo = add_filename()) |> 
+  compute() |> 
+  group_by(archivo, sub_o) |> 
+  summarise(tot = sum(fac_tri)) |> 
+  collect()
+```
+
+Se valida
+
+```{r}
+psub_4years
+```
+
+TCCO
+
+```{r}
+tcco_4years <- pob_15ymas |> 
+  filter(tcco != 0) |> 
+  mutate(archivo = add_filename()) |> 
+  compute() |> 
+  group_by(archivo) |> 
+  summarise(tot = sum(fac_tri)) |> 
+  collect()
+```
+
+Se valida
+
+```{r}
+tcco_4years
+```
+
+Periodo 2025-2026
+
+```{r}
+archivos_parquet <- list.files(
+  file.path(here::here(), "datos"),
+  pattern = "T125|T126",
+  full.names = TRUE
+)
+
+modulos_dataset <- open_dataset(
+  sources = archivos_parquet,
+  format = "parquet"
+)
+
+pob_15ymas <- modulos_dataset |> 
+  # filter(r_def == 0 & (c_res == 1 | c_res == 3) & between(eda5c, 1, 4))
+  # se considera edad no especificada para mayores de 12 años, es decir eda = 98
+  filter(r_def == 0 & (c_res == 1 | c_res == 3) & eda5c != 0)
+```
+
