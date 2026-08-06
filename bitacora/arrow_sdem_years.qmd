@@ -1,0 +1,817 @@
+---
+date: "02-08-2026"
+format: gfm
+---
+
+Previamente en:
+
+* `bitacora/paquete_arrow.qmd`
+* `bitacora/paquete_arrow_2.qmd`
+
+Se encontraron distintos errores en el siguiente flujo de trabajo
+
+```
+CSV -> datasets -> parquet
+```
+
+Los errores encontrados están relacionados a:
+
+* Errores de segmentación (conversión) al momento de exportar (guardar) los conjuntos de datos como tipo parquet. Estos errores se presentan incluso:
+  * Conversión predeterminada por las funciones `write_dataset` y `write_parquet` 
+  * Especificando los tipos de datos a tipo texto(*string*) en `open_dataset` y `open_csv_dataset`
+  * Especificando el idioma (*encoding*) de los microdatos del INEGI a `"latin1"
+  
+Estos errores se presenta porque al momento de guardar (exportar), la función `write_dataset` vuelve a realizar la conversión de cada columna o la codificación, aunque nosotros hayamos especificado dichos aspectos al momento de cargarlo con `open_dataset`. 
+
+Incluso la IA no encuentra una solución a este error, sugiere reportar la falla. 
+
+Lista de errores
+
+```
+Error: Invalid: In CSV column #2: Row #7296: CSV conversion error to int64: invalid value ''
+
+Error: Invalid: Could not open CSV input source 'C:/Users/Ramon GC/AppData/Local/Temp/RtmpCi4bDY/ENOE_SDEMT126.csv': Invalid: In CSV column #47: Row #1662: CSV conversion error to string: invalid UTF8 data
+```
+
+Yo pienso en cambiar el formato de CSV a DBF, pero la IA sugiere mantener los archivos CSV. En ese sentido, el fujo de obtención de datos sería
+
+```
+csv_arrow -> tibble -> parquet 
+```
+
+O evitando formato `parquet` 
+
+```
+csv -> dataset
+```
+
+Aunque (Wickham et.al., 2023) sugieren encarecidamente pasar a parquet.
+
+Considero que sí me conviene pasar a parquet ¿por qué? Necesito hacer esto para cada archivo:
+
+```{{r}}
+datos |> 
+  group_by(grupo) |> 
+  summarise(
+    n = n(),
+    tot = sum(fac_tri)
+  )
+```
+
+Pero `grupo` y `fac_tri` están presentes en cada archivo y como estará en un objeto tipo datasets y tipo parquet, podría hacer esto
+
+```{{r}}
+dataset |> 
+  group_by(archivo, grupo) |> 
+  summarise(
+    n = n(),
+    tot = sum(fac_tri)
+  )
+```
+
+Así pues, vamos primero a intentar descargar los archivos CSV y cargarlos como CSV_datasets. Después de validar resultados, se intentará pasarlos a parquet.
+
+```{r}
+#| label: setup
+#| warning: false
+#| message: false
+
+library(tidyverse)
+library(here)
+library(arrow)
+library(curl)
+
+source(here::here("scripts", "0_funciones.R"))
+```
+
+En primer lugar, se obtendrán los n enlaces
+
+```{r}
+urls <- obtener_n_enlaces(2026, 1, 1)
+urls
+```
+
+Se realizará con `curl::curl_multidownload` que permite descargar al mismo tiempo distintos archivos, pero para eso necesitamos especificar los n archivos de salida. Se puede hacer con `for` o bien con `replicate` que repite una expresión $n$ veces.
+
+Nota. No puede usarse `rep` dado que replica n veces la misma instrucción. Véase diferencia con `replicate`
+
+```{r}
+rep(tempfile(), times = 2)
+replicate(2, tempfile())
+```
+
+Se observa que `rep` replica 2 veces la salida de `tempfile`, mientras que `replicate` replica 2 veces la función `tempfile`.
+
+```{r}
+archivos_zip <- replicate(
+  n = length(urls),
+  expr = tempfile(fileext = ".zip")
+)
+
+archivos_zip
+```
+
+Ahora sí se ejecuta la multi descarga
+
+```{r}
+multi_download(
+  urls = urls,
+  destfiles = archivos_zip,
+  resume = TRUE
+)
+```
+
+Solamente descargo el primer archivo, ¿por qué? Por ejemplo, el segundo enlace oficial es:
+<https://www.inegi.org.mx/contenidos/programas/enoe/15ymas/microdatos/enoe_2025_trim4_csv.zip> 
+
+Es decir, el mismo. Entonces ¿por qué no descarga los demás?
+
+Volví a ejecutar la función y ya descargó los demás. Que raro.
+
+Se valida tamaño
+
+```{r}
+tibble(
+  archivo = basename(archivos_zip),
+  tamanio = (file.size(archivos_zip)) / 1024**2
+)
+```
+
+Está correcto!
+
+El siguiente paso es extraer, se me ocurre `sapply`, `map` o `replicate`, pero me quedo con `for`
+
+```{r}
+i <- vector(mode = "integer", length = length(archivos_zip))
+archivos_csv <- vector(mode = "character", length = length(archivos_zip))
+
+for (i in 1:length(archivos_zip)) {
+  archivos_csv <- unzip(
+    zipfile = archivos_zip[[i]],
+    list = TRUE
+  )$Name
+  
+  unzip(
+    zipfile = archivos_zip[[i]],
+    files = grepv("sdem", archivos_csv, ignore.case = TRUE),
+    exdir = tempdir()
+  )
+}
+```
+
+Se valida
+
+```{r}
+list.files(tempdir(), pattern = "\\.csv$")
+```
+
+Listo! 
+
+Se almacena la ruta
+
+```{r}
+archivos_csv <- list.files(tempdir(), pattern = "\\.csv$", full.names = TRUE)
+archivos_csv
+```
+
+Y se eliminan archivos zip
+
+```{r}
+unlink(list.files(tempdir(), pattern = "\\.zip$", full.names = TRUE))
+
+list.files(tempdir())
+```
+
+Listo!
+
+Ahora se carga dicho conjunto de datos
+
+```{r}
+open_csv_dataset(sources = archivos_csv)
+```
+
+Al parecer se cargó correctamente nuestro conjunto de datos, vamos a asignarle un objeto
+
+```{r}
+sdem_1year <- open_csv_dataset(sources = archivos_csv)
+
+sdem_1year
+```
+
+Actualmente, la memoria consumida es de 500 Mb muchísimo menor si hubiera cargado los 5 archivos al entorno de trabajo.
+
+Se puede añadir el nombre del archivo con `add_filename()`
+
+```{r}
+sdem_1year |> 
+  mutate(file = add_filename())
+```
+
+Se almacena sin `compute()` ni `collect()`
+
+```{r}
+sdem_1year <- sdem_1year |> 
+  mutate(file = add_filename())
+
+sdem_1year
+```
+
+Sin `compute` o `collect` solamente almacena y devuelve el conjunto de datos, el esquema.
+
+Ahora se realizará un conteo por archivo.
+
+```{{r}}
+sdem_1year |> 
+  count(file) |> 
+  collect()
+```
+
+Arroja este error
+
+```
+Error in `compute.arrow_dplyr_query()`:
+! Invalid: Could not open CSV input source 'C:/Users/Ramon GC/AppData/Local/Temp/Rtmpq0Ntqy/ENOE_SDEMT126.csv': Invalid: In CSV column #47: Row #1662: CSV conversion error to string: invalid UTF8 data
+ℹ If you have supplied a schema and your data contains a header row, you should supply the argument `skip = 1` to prevent the header being read in as data.
+Run `rlang::last_trace()` to see where the error occurred.
+```
+
+Se intentó con `open_dataset` y arrojaba el mismo error. Como lo sugirió la IA, se validó el tema de la codificación (idioma escrito), pero se buscó en internet el adecuado para el español mexicano y la IA de Google menciona que:
+
+"Para configurar la codificación (encoding) para el español de México en R, debes usar UTF-8 como estándar de caracteres y ajustar el locale a es_MX.UTF-8 (en Linux/Mac) o Spanish_Mexico.1252 (en Windows)."
+
+Se intenta con el primero.
+
+```{r}
+open_csv_dataset(
+  sources = archivos_csv,
+  parse_options = csv_read_options(encoding = "es.Mx.UTF-8")
+) |> 
+  count() |> 
+  collect()
+```
+
+Sí!!!!
+
+Nuestro conjunto de datos tiene un total de poco más de 2 millones de filas u observaciones.
+
+Se intenta con la otra codificación
+
+```{r}
+open_csv_dataset(
+  sources = archivos_csv,
+  parse_options = csv_read_options(encoding = "Spanish_Mexico.1252")
+) |> 
+  count() |> 
+  collect()
+```
+
+También devuelve el tibble. Entonces la codificación adecuada es "es.Mx-UTF-8" o bien "Spanish_Mexico.1252", no "latin1".
+
+¿Por qué está el error? Porque hay campos del SDEM que contienen el valor "Otros: Especifique" donde el encuestado brinda una respuesta abierta, más allá de opciones múltiples. Posiblemente, dentro del valor registrado existen caracteres especiales que no captura el codificador universal: UTF-8.
+
+Ahora se vuelve a realizar los pasos anteriores
+
+```{r}
+open_csv_dataset(
+  sources = archivos_csv,
+  parse_options = csv_read_options(encoding = "Spanish_Mexico.1252")
+) |> 
+  mutate(archivo = add_filename()) |> 
+  compute() |> 
+  count(archivo) |> 
+  collect()
+```
+
+Sí!!!
+
+Ahora se almacena dicho conjunto de datos
+
+```{r}
+sdem_1year <- open_csv_dataset(
+  sources = archivos_csv,
+  parse_options = csv_read_options(encoding = "es.Mx.UTF-8")
+) 
+
+sdem_1year
+```
+
+Solamente muestra una columna, por eso pudo realizar el conteo, pero si consideramos variables 
+
+```{{r}}
+sdem_1year |> 
+  summarise(tot = sum(fac_tri)) |> 
+  collect()
+```
+
+```
+Error in `sum()`:
+! objeto 'fac_tri' no encontrado
+Run `rlang::last_trace()` to see where the error occurred.
+```
+
+Arroja ese error
+
+```{r}
+# Sys.getlocale()
+
+open_csv_dataset(
+  sources = archivos_csv,
+  read_options = csv_read_options(encoding = "Spanish_Mexico.utf8")
+) 
+```
+
+El error estaba porque el argumento era `parse_options` cuando debe ser `read_options`. Se vuelve a validar una consulta
+
+```{{r}}
+open_csv_dataset(
+  sources = archivos_csv,
+  read_options = csv_read_options(encoding = "Spanish_Mexico.utf8")
+) |> 
+  count() |> 
+  collect()
+```
+
+Arroja el mismo error
+
+```
+Error in `compute.arrow_dplyr_query()`:
+! Invalid: Could not open CSV input source 'C:/Users/Ramon GC/AppData/Local/Temp/Rtmpq0Ntqy/ENOE_SDEMT126.csv': Invalid: In CSV column #47: Row #1662: CSV conversion error to string: invalid UTF8 data
+ℹ If you have supplied a schema and your data contains a header row, you should supply the argument `skip = 1` to prevent the header being read in as data.
+Run `rlang::last_trace()` to see where the error occurred.
+```
+
+```{{r}}
+open_csv_dataset(
+  sources = archivos_csv,
+  read_options = csv_read_options(encoding = "Spanish_Mexico.utf8", skip_rows = 1)
+) |> 
+  count() |> 
+  collect()
+
+open_csv_dataset(
+  sources = archivos_csv,
+  read_options = csv_read_options(encoding = "UTF-8")
+) |> 
+  count() |> 
+  collect()
+  
+open_csv_dataset(
+  sources = archivos_csv,
+  read_options = csv_read_options(encoding = "latin1")
+) |> 
+  count() |> 
+  collect()
+```
+
+Se mantiene el error
+
+```
+Error in `compute.arrow_dplyr_query()`:
+! Invalid: Could not open CSV input source 'C:/Users/Ramon GC/AppData/Local/Temp/Rtmpq0Ntqy/ENOE_SDEMT325.csv': Invalid: In CSV column #47: Row #269: CSV conversion error to string: invalid UTF8 data
+ℹ If you have supplied a schema and your data contains a header row, you should supply the argument `skip = 1` to prevent the header being read in as data.
+Run `rlang::last_trace()` to see where the error occurred.
+```
+
+Existen dos alternativas:
+
+1. Seleccionar solamente las columnas de interés
+2. Flujo de trabajo: 
+
+```
+csv_arrow -> tibble -> parquet
+```
+
+03-08-2026
+
+Al leer la descripción de los campos de dichos periodos: <https://www.inegi.org.mx/contenidos/programas/enoe/15ymas/doc/enoe_325_fd_c_bas_amp.pdf>
+
+
+Parece que los siguientes campos pueden estar arrojando dicho error (p. 19):
+
+* 45 CS_P21_DES Especificación del otro motivo Carácter 50 Texto Descripción del otro motivo
+
+* 48 CS_P23_DES Especificación del otro motivo Carácter 50 Texto Descripción del otro motivo
+
+Por su parte, el argumento `unify_schemas` tiene la siguiente descripción:
+
+"Lógico: ¿Deben escanearse todos los fragmentos de datos (archivos, conjuntos de datos) para crear un esquema unificado? Si es FALSO, solo se inspeccionará el primer fragmento para obtener su esquema. Utilice esta opción rápida cuando sepa y confíe en que todos los fragmentos tienen un esquema idéntico. El valor predeterminado es FALSO al crear un conjunto de datos a partir de una ruta de directorio/URI o un vector de rutas de archivo/URI (ya que puede haber muchos archivos y el escaneo puede ser lento), pero es VERDADERO cuando la fuente es una lista de conjuntos de datos (ya que debería haber pocos conjuntos de datos en la lista y sus esquemas ya están en memoria)."
+
+Es decir, este es el argumento que lee todas las columnas de todos los archivos para detectar su tipo, pero después intenta unificarlas. Solo busco que lea, no unifique.
+
+Se volverá a cargar el conjunto de datos
+
+```{r}
+open_csv_dataset(sources = tempdir())
+```
+
+Carga 8 archivos, se valida
+
+```{r}
+list.files(tempdir())
+```
+
+Posiblemente, esté cargando los archivos rds. Se especifica ruta de csv
+
+```{r}
+sdem <- open_csv_dataset(sources = archivos_csv)
+
+schema(sdem)
+```
+
+Se observa que `cs_p21_des: binary` y `cs_p23_des: string`. Puede que el error sea con `cs_p21_des`. De cualquier modo, se eliminan dichos campos.
+
+Cabe señalar que `open_csv_dataset` sí respeta el orden de los campos del archivo CSV.
+
+```{r}
+sdem |> 
+  select(-cs_p21_des, -cs_p23_des)
+```
+
+Se hace un conteo
+
+```{{r}}
+sdem |> 
+  select(-cs_p21_des, -cs_p23_des) |> 
+  count() |> 
+  collect()
+```
+
+Persiste el error, supuestamente es la columna:
+
+* 47 CS_NR_MOT ¿Cuál es el motivo principal por el que llegó ...? Carácter 2 01 02 03 04 05 06 07 08 09 10 99
+
+Pero según la documentación, es una variable categórica. Se elimina
+
+```{{r}}
+sdem |> 
+  select(-cs_p21_des, -cs_nr_mot, -cs_p23_des) |> 
+  count() |> 
+  collect()
+```
+
+El error persiste
+
+```
+Error in `compute.arrow_dplyr_query()`:
+! Invalid: Could not open CSV input source 'C:/Users/Ramon GC/AppData/Local/Temp/RtmpkzNOtT/ENOE_SDEMT126.csv': Invalid: In CSV column #47: Row #1662: CSV conversion error to string: invalid UTF8 data
+ℹ If you have supplied a schema and your data contains a header row, you should supply the argument `skip = 1` to prevent the header being read in as data.
+Run `rlang::last_trace()` to see where the error occurred.
+```
+
+Se intenta opción 2. Establecer tipo.
+
+```{r}
+tipo <- list(
+  r_def = string(),
+  loc = string(),
+  mun = string(),
+  est = string(),
+  est_d_tri = string(),
+  est_d_men = string(),
+  ageb = string(),
+  t_loc_tri = string(),
+  t_loc_men = string(),
+  cd_a = string(),
+  ent = string(),
+  con = string(),
+  upm = string(),
+  d_sem = string(),
+  n_pro_viv = string(),
+  v_sel = string(),
+  n_hog = string(),
+  h_mud = string(),
+  n_ent = string(),
+  per = string(),
+  n_ren = string(),
+  c_res = string(),
+  par_c = string(),
+  sex = string(),
+  eda = string(),
+  nac_dia = string(),
+  nac_mes = string(),
+  nac_anio = string(),
+  l_nac_c = string(),
+  cs_p12 = string(),
+  cs_p13_1 = string(),
+  cs_p13_2 = string(),
+  cs_p14_c = string(),
+  cs_p15 = string(),
+  cs_p16 = string(),
+  cs_p17 = string(),
+  n_hij = string(),
+  e_con = string(),
+  cs_p20a_1 = string(),
+  cs_p20a_c = string(),
+  cs_p20b_1 = string(),
+  cs_p20b_c = string(),
+  cs_p20c_1 = string(),
+  cs_ad_mot = string(),
+  cs_p21_des = string(),
+  cs_ad_des = string(),
+  cs_nr_mot = string(),
+  cs_p23_des = string(),
+  cs_nr_ori = string(),
+  ur = string(),
+  zona = string(),
+  salario = string(),
+  fac_tri = string(),
+  fac_men = string(),
+  clase1 = string(),
+  clase2 = string(),
+  clase3 = string(),
+  pos_ocu = string(),
+  seg_soc = string(),
+  rama = string(),
+  c_ocu11c = string(),
+  ing7c = string(),
+  dur9c = string(),
+  emple7c = string(),
+  medica5c = string(),
+  buscar5c = string(),
+  rama_est1 = string(),
+  rama_est2 = string(),
+  dur_est = string(),
+  ambito1 = string(),
+  ambito2 = string(),
+  tue1 = string(),
+  tue2 = string(),
+  tue3 = string(),
+  busqueda = string(),
+  d_ant_lab = string(),
+  d_cexp_est = string(),
+  dur_des = string(),
+  sub_o = string(),
+  s_clasifi = string(),
+  remune2c = string(),
+  pre_asa = string(),
+  tip_con = string(),
+  dispo = string(),
+  nodispo = string(),
+  c_inac5c = string(),
+  pnea_est = string(),
+  niv_ins = string(),
+  eda5c = string(),
+  eda7c = string(),
+  eda12c = string(),
+  eda19c = string(),
+  hij5c = string(),
+  domestico = string(),
+  anios_esc = string(),
+  hrsocup = string(),
+  ingocup = string(),
+  ing_x_hrs = string(),
+  tpg_p8a = string(),
+  tcco = string(),
+  cp_anoc = string(),
+  imssissste = string(),
+  ma48me1sm = string(),
+  p14apoyos = string(),
+  scian = string(),
+  t_tra = string(),
+  emp_ppal = string(),
+  tue_ppal = string(),
+  trans_ppal = string(),
+  mh_fil2 = string(),
+  mh_col = string(),
+  sec_ins = string(),
+  tipo = string(),
+  mes_cal = string()
+)
+
+tipo <- schema(tipo)
+```
+
+El codificador predeterminado de `string` es UTF-8. Lo más probable es que vuelva arrojar error. Al parecer aunque se especifique el codificador con `csv_read_options`, la función `string` por defecto lo convierte a UTF-8. Se carga un archivo.
+
+```{r}
+sdem_t126 <- read_csv_arrow(file = archivos_csv[[1]])
+```
+
+Se valida codificador.
+
+```{r}
+sdem_t126 |> 
+  slice(1662) |> 
+  # slice(1660: 1670) |>
+  mutate(
+    cod45 = Encoding(as.character(cs_p21_des)),
+    # cod45 = iconv(as.character(cs_p21_des), from = "UTF-8", to = "latin1")
+    cod47 = Encoding(as.character(cs_nr_mot)),
+    cod48 = Encoding(as.character(cs_p23_des))
+  ) |>
+  select(cs_p21_des, cs_nr_mot, cs_p23_des, contains("cod"))
+```
+
+Se valida
+
+```{r}
+sdem_t126 |> 
+  distinct(cs_nr_mot)
+```
+
+Se observa que tanto `read_csv_arrow` como `open_csv_dataset` establecen el tipo caracter a `cs_nr_mot`, siendo este de tipo categórico.
+
+Asimismo, establece a `cs_p21_des` y `cs_p23_des` como binario, siendo estos de tipo texto 
+
+```{r}
+sdem_t126 |> 
+  distinct(cs_p21_des)
+```
+
+Se contrasta con `read_csv`
+
+```{r}
+sdem_t126_csv <- read_csv(
+  archivos_csv[[1]],
+  col_types = cols(.default = col_character())
+)
+```
+
+```{r}
+sdem_t126_csv |> 
+  distinct(cs_p21_des) |> 
+  mutate(
+    cod1 = Encoding(cs_p21_des)
+    # cod2 = iconv(cs_p21_des, "unknown", "UTF-8")
+  )
+```
+
+Se valida la fila que presenta el error
+
+```{r}
+sdem_t126_csv |> 
+  slice(269, 1662)
+```
+
+No existe absolutamente nada
+
+Dada esta situación, me pregunto si presentaré el mismo error en los siguientes flujos:
+
+* CSV -> tibble -> parquet -> dataset 
+
+* DBF -> tibble -> parquet -> dataset 
+
+* CSV -> rds -> tibble -> parquet -> dataset
+
+* CSV_arrow -> tibble -> parquet -> dataset
+
+* CSV -> tibble -> eliminar columnas -> parquet -> dataset
+
+```{r}
+sdem_t126_csv |> 
+  distinct(cs_ad_mot) |> 
+  mutate(
+    cod1 = Encoding(cs_ad_mot)
+    # cod2 = iconv(cs_p21_des, "unknown", "UTF-8")
+  )
+```
+
+```{r}
+# paste(tempdir(), "\\", basename(archivos_csv[[1]]), ".parquet", sep = "")
+archivos_parquet <- sub("\\.csv", "\\.parquet", archivos_csv)
+
+write_parquet(
+  x = sdem_t126,
+  sink = archivos_parquet[[1]]
+)
+```
+
+Se valida
+
+```{r}
+list.files(tempdir())
+```
+
+Creo que se cargó el periodo equivocado, se carga el periodo 2026-1T, fila 1662
+
+```{r}
+csv_t126 <- grepv("t126", archivos_csv, ignore.case = TRUE)
+
+sdem_t126_csv <- read_csv(
+  csv_t126,
+  col_types = cols(.default = col_character())
+)
+
+sdem_t126_csv |> 
+  slice(1662)
+```
+
+También está en blanco
+
+Para el periodo 2025-T3, fila 269
+
+```{r}
+csv_t325 <- grepv("t325", archivos_csv, ignore.case = TRUE)
+
+sdem_t325_csv <- read_csv(
+  csv_t325,
+  col_types = cols(.default = col_character())
+)
+
+sdem_t325_csv |> 
+  slice(269)
+```
+
+También en blanco!!!
+
+Vamos a intentar:
+
+1. CSV_arrow -> tibble -> parquet -> dataset
+
+```{r}
+# csv_t126
+pqt_t126 <- grepv("t126", archivos_parquet, ignore.case = TRUE)
+
+sdem_t126_arrow <- read_csv_arrow(csv_t126)
+
+write_parquet(sdem_t126_arrow, pqt_t126)
+```
+
+Se carga
+
+```{r}
+sdem_t126_pqt <- open_dataset(
+  sources = pqt_t126,
+  format = "parquet"
+)
+
+schema(sdem_t126_pqt)
+```
+
+Se hace un cálculo simple: conteo
+
+```{r}
+sdem_t126_pqt |> 
+  count() |> 
+  collect()
+```
+
+Sí muestra el resultado, validemos una suma por variables
+
+```{r}
+sdem_t126_pqt |> 
+  group_by(cs_p13_1) |> 
+  summarise(
+    tot = sum(fac_tri)
+  ) |> 
+  arrange(desc(tot)) |> 
+  collect()
+```
+
+Ahora ingreso promedio
+
+```{r}
+sdem_t126_pqt |> 
+  # mutate(cs_p13_1 = as.integer(cs_p13_1)) |> 
+  group_by(cs_p13_1) |> 
+  summarise(
+    n = n(),
+    tot = sum(fac_tri),
+    promedio = mean(ingocup, na.rm = TRUE)
+  ) |> 
+  arrange(cs_p13_1) |> 
+  collect()
+```
+
+Sí!
+
+Pero sí cambiamos el tipo de variable
+
+```{{r}}
+sdem_t126_pqt |> 
+  mutate(cs_p13_1 = as.integer(cs_p13_1)) |>
+  group_by(cs_p13_1) |> 
+  summarise(
+    n = n(),
+    tot = sum(fac_tri),
+    promedio = mean(ingocup, na.rm = TRUE)
+  ) |> 
+  arrange(cs_p13_1) |> 
+  collect()
+```
+
+```
+Error in `compute.arrow_dplyr_query()`:
+! Invalid: Failed to parse string: ' ' as a scalar of type int32
+Run `rlang::last_trace()` to see where the error occurred.
+```
+
+Pero...
+
+```{r}
+sdem_t126_pqt |> 
+  group_by(cs_p13_1) |> 
+  summarise(
+    n = n(),
+    tot = sum(fac_tri),
+    promedio = mean(ingocup, na.rm = TRUE)
+  ) |> 
+  collect() |> 
+  mutate(cs_p13_1 = as.integer(cs_p13_1)) |>
+  arrange(cs_p13_1)
+```
+
+Se observa que sí cambia el tipo de dato y además los valores NA ya aparecen como tal
+
+En el siguiente documento se hará el intento con 5 archivos
+

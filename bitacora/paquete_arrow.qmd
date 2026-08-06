@@ -1,0 +1,950 @@
+---
+date: "31-07-2026"
+format: gfm
+---
+
+En este documento se intentará esbozar el procedimiento para manipular los 17 módulos descargados en formato CSV para la realización de cuadros y figuras.
+
+Como se vio en `bitacora/microdatos_todo_periodo.qmd`, nuestro flujo actual de proyecto es el siguiente. 
+
+1. La función `descargar_n_modulos(year, trimestre)` descarga n módulos desde el periodo especificado, por defecto descarga 4 años previos y la tabla SDEM. Es decir,
+
+```{{r}}
+enoe <- descargar_n_modulos(2026, 1)
+```
+
+La función devuelve una lista de, en este caso, de 17 tibbles que contienen, cada uno, alrededor de 400 mil observaciones (o filas) y poco más de 100 variables (o columnas), es decir:
+
+```{r}
+400000 * 17
+```
+
+Alrededor de 6.8 millones de filas. Por lo cual, dicho objeto pesa alrededor de 5 Gb.
+
+El siguiente paso, es aplicar las funciones correspondientes para estimar los totales y calcular las tasas complementarias.
+
+En un inicio, se me ocurrió hacerlo de la siguiente manera:
+
+* Desemparquetar la lista mediante `list2env`, o también `zeallot`, y aplicar dichas funciones a cada objeto. Algo como sigue
+
+```{{r}}
+SDEMT123 <- aplicar_criterio(SDEMT123)
+SDEMT124 <- aplicar_criterio(SDEMT124)
+SDEMT125 <- aplicar_criterio(SDEMT125)
+...
+SDEMT422 <- aplicar_criterio(SDEMT422)
+
+tot1 <- calcular_tot(SDEMT123)
+tot2 <- calcular_tot(SDEMT124)
+...
+tot17 <- calcular_tot(SDEMT422)
+
+total <- tot1 |> 
+  add_row(tot2) |> 
+  ...
+  add_row(tot17)
+```
+
+Esto es sencillo de realizar, y de entender, pero tedioso.
+
+* Iterar procedimiento con `map`
+
+Originalmente tenía en mente desemparquetar la lista y volver a crear al iterar el procedimiento anterior a través de `map` ya que creía que solamente aceptaba vectores, pero la IA <https://share.gemini.google/cRkytPPhwOhp> y la documentación de dicha función (`?purrr::map)` mencionan que sí puede ingresarse una lista como objeto. Por tanto, el procedimiento quedaría como sigue
+
+```{{r}}
+totales <- map(enoe, calcular_pob_tot)
+tasas <- map(enoe, calcular_tasas_tot)
+```
+
+Aunque no se sabe con claridad cómo sería la especificación.
+
+* Eficientar el proceso de carga
+
+Dado que los objetos se cargan (importan) desde `read_csv` y contienen un gran volumen de datos, la IA <https://share.gemini.google/cRkytPPhwOhp> sugiere convertirlo a formato parquet de Arrow, o bien utilizar `data.table`. 
+
+En este espacio se realizarán distintas pruebas para convertir un archivo csv a tipo parquet. Para lo cual, aplicaremos lo visto en el capítulo 22 Arrow de R for data science (2a ed.) <https://davidrsch.github.io/r4ds-es/arrow.html> 
+
+En primer lugar, ¿qué es Apache Arrow?
+
+* Apache Arrow es un software creado por y para la comunidad de desarrolladores. 
+* Apache Arrow define un formato de memoria columnar independiente del lenguaje para datos planos y anidados, organizado para operaciones analíticas eficientes en hardware moderno como CPU y GPU.
+* Apache Arrow es un conjunto de herramientas multilingüe para crear aplicaciones de alto rendimiento que procesan y transfieren grandes conjuntos de datos. 
+
+Al mismo tiempo, 
+
+"Un componente fundamental de Apache Arrow es su formato columnar en memoria , una especificación estandarizada e independiente del lenguaje para representar conjuntos de datos estructurados, similares a tablas, en memoria."
+
+Por tanto, 
+
+"El formato Apache Arrow permite que las rutinas de cálculo y los motores de ejecución maximicen su eficiencia al escanear e iterar grandes bloques de datos. En particular, la disposición columnar contigua posibilita la vectorización mediante las últimas operaciones SIMD (Instrucción Única, Datos Múltiples) incluidas en los procesadores modernos."
+
+Fuente
+
+<https://arrow.apache.org/>
+
+<https://arrow.apache.org/overview/> 
+
+Es decir, Apache Arrow es un programa que permite procesar grandes volúmenes de datos a través de su formato de tabla compatible con los distintos entornos o lenguajes computacionales. Este formato se le llama Arrow, es un conjunto de datos tipo tabla caracterizada por trabajar a través de columnas, eso permite eficientar (reducir el tiempo en) la manipulación de datos.
+
+En R, se pueden trabajar datos tipo Arrow mediante el paquete `arrow`. Se valida instalación
+
+```{r}
+find.package(package = "arrow")
+```
+
+Sí está instalado. Se activa
+
+```{r}
+#| label: setup
+#| message: false
+#| warning: false
+
+library(arrow)
+library(pacman)
+library(tidyverse)
+library(here)
+library(curl)
+```
+
+Se valida versión instalada
+
+```{r}
+pacman::p_ver_diff("arrow")
+```
+
+Se validan paquetes que tienen una versión más reciente en el repositorio CRAN
+
+```{r}
+pacman::p_update(update = FALSE)
+```
+
+El paquete `MASS` contiene funciones y conjuntos de datos para complementar el trabajo de Venables y Ripley, "Estadística Aplicada Moderna con S" (4.ª edición, 2002). `?MASS`
+
+
+Se actualizan
+
+```{r}
+# utils::update.packages(ask = FALSE)
+pacman::p_update()
+```
+
+Se vuelve a validar
+
+```{r}
+pacman::p_update(update = FALSE)
+```
+
+En específico, el paquete `arrow`
+
+```{r}
+pacman::p_ver_diff("arrow")
+```
+
+Listo! Recuerda que para la actualización de paquetes se requiere ejecutar RStudio como administrador, de otro modo es probable que arroje error.
+
+Ahora se activa dicho paquete
+
+```{{r}}
+library(arrow)
+```
+
+Los autores muestran el siguiente código
+
+```{{r}}
+dir.create("data", showWarnings = FALSE)
+
+curl::multi_download(
+  "https://r4ds.s3.us-west-2.amazonaws.com/seattle-library-checkouts.csv",
+  "data/seattle-library-checkouts.csv",
+  resume = TRUE
+)
+#> # A tibble: 1 × 10
+#>   success status_code resumefrom url                    destfile        error
+#>   <lgl>         <dbl>      <dbl> <chr>                  <chr>           <chr>
+#> 1 TRUE            200          0 https://r4ds.s3.us-we… /home/runner/w… <NA> 
+#> # ℹ 4 more variables: type <chr>, modified <dttm>, time <dbl>,
+#> #   headers <list>
+```
+
+Donde
+
+* `base::dir.create` permite crear un directorio, devuelve un vector de forma invisible si se creo el directorio de forma exitosa, 
+* `base::dir.exists` permite validar la existencia de un directorio, devuelve un valor lógico si existe o no el directorio especificado
+
+Se valida
+
+```{r}
+here::here()
+dir.exists(here::here())
+```
+
+Creación
+
+```{r}
+dir.create(here::here("ejemplo"))
+dir.exists(here::here("ejemplo"))
+```
+
+Recuerda que para eliminar `unlink`
+
+```{r}
+unlink(here::here("ejemplo"), recursive = TRUE)
+dir.exists(here::here("ejemplo"))
+```
+
+Por su parte, el paquete `curl` maneja opciones de `url()` es decir enlaces
+
+```{r}
+pacman::p_exists("curl", local = TRUE)
+```
+
+Se valida versión
+
+```{r}
+pacman::p_ver_diff("curl")
+```
+
+Por tanto, se habilita.
+
+```{{r}}
+library(curl)
+```
+
+Existen las siguientes funciones:
+
+* `curl_download`: similar a `download.file`, excepto que analiza si existe el enlace antes de empezar la descarga y arroja error si no existe
+
+* `multi_download`: permite descargar muchos archivos a la vez y devuelve un marco de datos que especifica el estatus de cada descarga
+
+Fuente: <https://cran.r-project.org/web/packages/curl/refman/curl.html>
+
+Este último podría ser útil para el proceso que descarga 17 archivos.
+
+Por tanto, dicho código descarga un archivo CSV y lo almacena en una ruta especificada 
+
+Se intenta descargar un archivo del repositorio del INEGI
+
+```{r}
+curl::curl_download(
+  url = "https://www.inegi.org.mx/contenidos/programas/enoe/15ymas/microdatos/enoe_2026_trim1_csv.zip",
+  destfile = tempdir(),
+  quiet = FALSE
+)
+```
+
+Arroja un mensaje de advertencia
+
+Se modifica archivo de destino
+
+```{r}
+curl::curl_download(
+  url = "https://www.inegi.org.mx/contenidos/programas/enoe/15ymas/microdatos/enoe_2026_trim1_csv.zip",
+  destfile = tempfile(fileext = ".zip"),
+  quiet = FALSE
+)
+```
+
+Se valida
+
+```{r}
+list.files(path = tempdir(), pattern = "\\.zip$")
+```
+
+Listo!
+
+Lo siguiente que hacen los autores es cargar el archivo CSV, pero no con `readr::read_csv` sino con `arrow::open_dataset`
+
+```{{r}}
+seattle_csv <- open_dataset(
+  sources = "data/seattle-library-checkouts.csv", 
+  col_types = schema(ISBN = string()),
+  format = "csv"
+)
+```
+
+"Llame open_dataset()para apuntar a un directorio de archivos de datos y devolver un objeto Dataset; luego, utilice dplyrlos métodos para consultarlo."
+
+Esta función devuelve un objeto "Dataset":
+
+"Los conjuntos de datos de Arrow permiten realizar consultas sobre datos divididos en varios archivos. Esta fragmentación de datos puede indicar particionamiento, lo que puede acelerar las consultas que solo acceden a algunas particiones (archivos).
+
+Un Dataset contenedor contiene uno o más elementos Fragments, como archivos, de tipo y particionamiento potencialmente diferentes."
+
+Es decir, `open_dataset` permite cargar al mismo tiempo distintos archivos (conjuntos de datos) contenidos en un mismo directorio, y devuelve dicho conjunto de datos para trabajar con él.
+
+Por su parte, `read_csv_arrow`:
+
+"Estas funciones utilizan el lector CSV de Arrow C++ para leer en un tibble."
+
+Devuelve un tibble.
+
+Podría decirse que `open_dataset` permite cargar al mismo tiempo distintos archivos, mientras que `read_csv_arrow` solamente un archivo en formato CSV.
+
+Para el caso de un solo módulo podría utilizarse `read_csv_arrow`, pero los autores sugieren convertir el archivo o conjunto de datos a formato parquet, dado que posee ventajas en temas de eficiencia comparado con CSV:
+
+* Los archivos de parquet suelen ser más pequeños que el archivo CSV equivalente [menor tamaño]
+
+* Los archivos de parquet tienen un sistema de tipo rico [conservan el tipo de dato de cada variable]
+
+* Los archivos de parquet están “orientados a columnas”. Esto significa que están organizados columna por columna, como el marco de datos de R. Esto generalmente conduce a un mejor rendimiento para las tareas de análisis de datos en comparación con los archivos CSV, que se organizan fila por fila.
+
+* Los archivos de parquet están “fragmentados”, lo que hace posible trabajar en diferentes partes del archivo al mismo tiempo y, si tiene suerte, saltarse algunos fragmentos por completo.
+
+Aquello se realiza con `write_dataset`
+
+```{{r}}
+seattle_csv |>
+  group_by(CheckoutYear) |>
+  write_dataset(path = pq_path, format = "parquet")
+```
+
+Y posteriormente se cargan con `open_dataset` para muchos archivos
+
+```{{r}}
+seattle_pq <- open_dataset(pq_path)
+```
+
+O `read_parquet`
+
+En el caso de `schema`: "Crea un esquema o extrae uno de un objeto."
+
+```{{r}}
+schema(...)
+```
+
+Donde `...` pueden ser campos , pares nombre de campo/ tipo de datos (o una lista de ellos), u objeto del que extraer un esquema
+
+Los distintos tipos de datos están contenidos en <https://cran.r-project.org/web/packages/arrow/refman/arrow.html#topic+data-type> 
+
+Al parecer no puedo especificar todos los campos (columnas) en una sola sentencia para definir en ellas un único tipo de dato. 
+
+Aunque podría especifircarse con `schema = $ToString()`, véase `?arrow::schema`
+
+Primero quiero validar si `open_dataset` lee archivos comprimidos.
+
+```{{r}}
+open_csv_dataset(
+  sources = archivo_zip,
+  col_types = NULL,
+)
+```
+
+
+```
+Error in `open_dataset()`:
+! Invalid: Error creating dataset. Could not read schema from 'C:/Users/Ramon GC/AppData/Local/Temp/RtmpuiPnfZ/file59b01a051a57.zip'. Is this a 'csv' file?: Could not open CSV input source 'C:/Users/Ramon GC/AppData/Local/Temp/RtmpuiPnfZ/file59b01a051a57.zip': Invalid: CSV parse error: Row #2: Expected 1 columns, got 3:
+Run `rlang::last_trace()` to see where the error occurred.
+```
+
+Directamente no puede leer archivos zip.
+
+```{{r}}
+open_csv_dataset(
+  sources = tempdir(),
+  col_types = NULL,
+)
+```
+
+```
+Error in `open_dataset()`:
+! Invalid: Error creating dataset. Could not read schema from 'C:/Users/Ramon GC/AppData/Local/Temp/RtmpuiPnfZ/file59b01a051a57.zip'. Is this a 'csv' file?: Could not open CSV input source 'C:/Users/Ramon GC/AppData/Local/Temp/RtmpuiPnfZ/file59b01a051a57.zip': Invalid: CSV parse error: Row #2: Expected 1 columns, got 3: 
+Run `rlang::last_trace()` to see where the error occurred.
+```
+En efecto, parece que no puede leer archivos CSV dentro de zip.
+
+Se descomprime
+
+```{r}
+archivo_zip <- list.files(path = tempdir(), pattern = "\\.zip$", full.names = TRUE)
+
+modulos <- unzip(
+  archivo_zip,
+  list = TRUE
+)$Name
+
+unzip(
+  archivo_zip,
+  files = grepv("sdem", modulos, ignore.case = TRUE),
+  exdir = tempdir()
+)
+```
+
+Se valida
+
+```{r}
+list.files(tempdir(), "SDEM", full.names = TRUE)
+```
+
+Se almancena ruta para cargarlo con `arrow`
+
+```{r}
+archivo_csv <- list.files(tempdir(), "SDEM", full.names = TRUE)
+```
+
+Ahora se carga con `read_csv_arrow`
+
+```{r}
+sdem <- read_csv_arrow(file = archivo_csv)
+
+sdem
+```
+
+Se valida composición
+
+```{r}
+glimpse(sdem)
+```
+
+Al parecer si segmento correctamente los distintos campos
+
+Ahora el siguiente paso es guardarlo (o exportaro) como tipo parquet con `write_dataset` esto para conjunto de datos. Para archivos individuales está `write_parquet`, aunque está `write_csv_dataset` este no permite guardar como tipo parquet. 
+
+```{r}
+write_parquet(
+  x = sdem,
+  sink = tempfile(fileext = ".parquet")
+)
+```
+
+Se valida
+
+```{r}
+list.files(
+  path = tempdir(),
+  full.names = TRUE
+)
+```
+
+Se valida
+
+```{r}
+tibble(
+  archivo = list.files(tempdir(), pattern = "csv|parquet|zip"),
+  tamanio = file.size(
+    list.files(tempdir(), pattern = "csv|parquet|zip", full.names = TRUE)
+  ) / 1024**2
+)
+
+# archivos <- list.files(tempdir(), pattern = "csv|parquet|zip", full.names = TRUE)
+# 
+# tibble(
+#   archivo = basename(archivos),
+#   tamanio = file.size(archivos) / 1024**2
+# )
+```
+
+Fuente. 
+
+```{{r}}
+tibble(
+  files = list.files(pq_path, recursive = TRUE),
+  size_MB = file.size(file.path(pq_path, files)) / 1024^2
+)
+#> # A tibble: 18 × 2
+#>   files                            size_MB
+#>   <chr>                              <dbl>
+#> 1 CheckoutYear=2005/part-0.parquet    108.
+#> 2 CheckoutYear=2006/part-0.parquet    161.
+#> 3 CheckoutYear=2007/part-0.parquet    175.
+#> 4 CheckoutYear=2008/part-0.parquet    192.
+#> 5 CheckoutYear=2009/part-0.parquet    211.
+#> 6 CheckoutYear=2010/part-0.parquet    219.
+#> # ℹ 12 more rows
+```
+
+Se observa que incluso el archivo parquet pesa menos que el archivo comprimido
+
+Cabe mencionar que `file.path`: "construye la ruta a un archivo a partir de componentes de forma independiente de la plataforma.". Entiendo que permite generar la ruta completa del archivo en cuestión.
+
+A continuación, se vuelve a abrir el archivo pero está vez están en formato parquet. Los autores lo hacen con, de nueva cuenta, `open_dataset`, pero en este caso como es un solo archivo se realiza con `read_parquet`
+
+```{r}
+archivo_parquet <- list.files(
+    path = tempdir(),
+    pattern = "\\.parquet$",
+    full.names = TRUE
+  )
+
+sdem_arrow <- read_parquet(archivo_parquet)
+```
+
+Se valida
+
+```{r}
+sdem_arrow
+```
+
+
+Devuelve un tibble
+
+Los autores mencionan que se pueden realizar la mayoría de las funciones de R, incluyendo los verbos de `dplyr`, y para validar la lista en `?acero`: <https://cran.r-project.org/web/packages/arrow/refman/arrow.html#acero>
+
+En ese sentido,
+
+"Para ejecutar la consulta, llame a `compute()`, que devuelve una arrow Tabla , o `collect()` , que importa la Tabla resultante a un tibbleR."
+
+Se realizará un ejemplo simple para validar la eficiencia al trabajar con tablas parquet (columnar). Se analizará el ingreso promedio por nivel educativo.
+
+Primero con tablas CSV
+
+```{r}
+system.time(
+  sdem |> 
+    group_by(cs_p13_1) |> 
+    summarise(
+      n = n(),
+      tot = sum(fac_tri),
+      ingreso_promedio = mean(ingocup, na.rm = TRUE)
+    ) 
+)
+```
+
+Ahora con tabla parquet
+
+```{r}
+  sdem_arrow |> 
+    group_by(cs_p13_1) |> 
+    summarise(
+      n = n(),
+      tot = sum(fac_tri),
+      ingreso_promedio = mean(ingocup, na.rm = TRUE)
+    )
+```
+
+Se observa que no es necesario si especificar `collect` ni `compute` para devolver o mostrar los resultados en la consola. Posiblemente aplique cuando son conjuntos de datos (muchos archivos) fragmentado en distintos archivos con `open_dataset`
+
+```{r}
+system.time(
+  sdem_arrow |> 
+    group_by(cs_p13_1) |> 
+    summarise(
+      n = n(),
+      tot = sum(fac_tri),
+      ingreso_promedio = mean(ingocup, na.rm = TRUE)
+    ) 
+)
+```
+
+Con datos CSV el sistema se tardó 0.10 segundos, mientras que con datos parquet solamente 0.03 segundos es decir,
+
+```{r}
+0.1/0.03
+```
+
+3.3 veces más rápido
+
+Por otro lado, 
+
+```{r}
+sdem_arrow |> 
+  group_by(cs_p13_1) |> 
+  summarise(
+    n = n(),
+    tot = sum(fac_tri),
+    ingreso_promedio = mean(ingocup, na.rm = TRUE)
+  ) 
+```
+
+Se observa que muestra los valores NA como valores en blanco
+
+```{r}
+sdem |> 
+  filter(is.na(cs_p13_1)) |> 
+  count()
+```
+
+Y no como valores explícitamente faltantes (*missing*).
+
+Asimismo, recordemos que estos datos provienen de una encuesta con diseño muestral complejo. Por tanto, el ingreso mensual promedio reportado aplica solamente para la muestra contenida, NO para la población que representa. Así pues, debe considerarse dicho diseño de forma explícita:
+
+1. Calculando la media agrupada
+2. Definiendo los datos como encuesta compleja con el paquete `srvyr` o `survey`
+
+No obstante, parece que no acepta ninguna de las dos opciones, véase `?acero` de forma directa
+
+```{r}
+library(srvyr)
+```
+
+Pero, sí es posible dado que `read_parquet` devuelve un tibble siendo este un objeto permitido en `srvyr::as_survey_design`. 
+
+Se valida
+
+```{r}
+sdem_svy <- sdem_arrow |> 
+  as_survey_design(
+    ids = upm,
+    strata = est,
+    weights = fac_tri,
+    nest = TRUE
+  )
+
+sdem_svy
+```
+
+Se vuelve a validar ingreso mensual ahora con `survey_mean`
+
+```{r}
+sdem_svy |> 
+  group_by(cs_p13_1) |> 
+  summarise(
+    n = n(),
+    tot = survey_total(vartype = NULL),
+    ingreso_promedio = survey_mean(ingocup, na.rm = TRUE, vartype = NULL)
+  ) 
+```
+
+Por otro lado,
+
+`read_parquet`, `read_csv_arrow`, `read_` siguen cargando los archivos en la memoria RAM, mientras que `open_dataset` almacena la estructura del o de los archivos y ejecuta solamente lo necesario.
+
+Vamos a cargar nuestros datos con `open_dataset`
+
+```{r}
+sdem_dataset <- open_csv_dataset(archivo_csv)
+
+sdem_dataset
+```
+
+Volvemos a realizar el procedimiento de guardar en formato parquet
+
+```{{r}}
+write_dataset(
+  dataset = sdem_dataset,
+  path = tempdir(),
+  format = "parquet"
+)
+```
+
+Arroja el siguiente error
+
+```
+Error: Invalid: In CSV column #2: Row #7296: CSV conversion error to int64: invalid value ''
+```
+
+Existe la función auxiliar `write_csv_dataset`, se valida
+
+```{{r}}
+write_csv_dataset(
+  dataset = sdem_dataset,
+  path = tempdir()
+)
+```
+
+Arroja el mismo error
+
+Se intenta calcular el ingreso mensual promedio
+
+```{r}
+sdem_dataset |> 
+  group_by(cs_p13_1) |> 
+  summarise(
+    n = n(),
+    tot = sum(fac_tri),
+    ingreso_promedio = mean(ingocup, na.rm = TRUE)
+  ) 
+```
+
+Sin especificar cómo devolver la instrucción anterior, "podemos ver un poco de información sobre lo que esperamos que devuelva Arrow cuando tenga lugar la ejecución" 
+
+Si especificamos `compute()`
+
+```{r}
+sdem_dataset |> 
+  group_by(cs_p13_1) |> 
+  summarise(
+    n = n(),
+    tot = sum(fac_tri),
+    ingreso_promedio = mean(ingocup, na.rm = TRUE)
+  ) |> 
+  compute()
+```
+
+Y `collect()`
+
+```{r}
+sdem_dataset |> 
+  group_by(cs_p13_1) |> 
+  summarise(
+    n = n(),
+    tot = sum(fac_tri),
+    ingreso_promedio = mean(ingocup, na.rm = TRUE)
+  ) |> 
+  collect()
+```
+
+Se valida tiempo de ejecución
+
+```{r}
+sdem_dataset |> 
+  group_by(cs_p13_1) |> 
+  summarise(
+    n = n(),
+    tot = sum(fac_tri),
+    ingreso_promedio = mean(ingocup, na.rm = TRUE)
+  ) |> 
+  collect() |> 
+  system.time()
+```
+
+Inclusive se tarda más que `sdem_arrow` donde se cargo el archivo directamente en la memoria RAM ¿por qué? Porque el archivo origen es CSV, no parquet
+
+Vamos a volver a intentarlo, pero ahora con `open_dataset`
+
+```{r}
+sdem_dataset <- open_dataset(
+  sources = archivo_csv,
+  format = "csv"
+)
+
+sdem_dataset
+```
+
+Ahora se vuelve a guardar en formato parquet
+
+```{{r}}
+write_dataset(
+  sdem_dataset,
+  path = tempdir(),
+  format = "parquet"
+)
+```
+
+Mismo error
+
+```
+Error: Invalid: In CSV column #2: Row #7296: CSV conversion error to int64: invalid value ''
+```
+
+Se valida
+
+```{r}
+sdem_arrow |> 
+  select(cve_loc) |> 
+  slice(7296)
+  # collect()
+```
+
+
+Se vuelve a cargar el archivo
+
+
+```{r}
+sdem_dataset2 <- open_csv_dataset(
+  sources = archivo_csv,
+  na = c("", "NA", "''")
+)
+
+sdem_dataset2
+```
+
+Se vuelve a exportar
+
+```{{r}}
+write_dataset(
+  dataset = sdem_dataset2,
+  path = tempdir(),
+  format = "parquet"
+)
+```
+
+Sigue arrojando error
+
+```{r}
+list.files(tempdir(), full.names = TRUE)
+```
+
+Se intenta con el archivo parquet ya guardardo
+
+```{r}
+sdem_dataset2 <- open_dataset(sources = archivo_parquet)
+
+sdem_dataset2
+```
+
+Se valida
+
+```{r}
+sdem_dataset2 |> 
+  group_by(cs_p13_1) |> 
+  summarise(
+    n = n(),
+    tot = sum(fac_tri),
+    ingreso_promedio = mean(ingocup, na.rm = TRUE)
+  ) |> 
+  collect() |> 
+  system.time()
+```
+
+Es mayor que si se carga directamente a la memoria: segundos
+
+```{r}
+system.time(
+  sdem_arrow |> 
+  group_by(cs_p13_1) |> 
+  summarise(
+    n = n(),
+    tot = sum(fac_tri),
+    ingreso_promedio = mean(ingocup, na.rm = TRUE)
+  ) 
+)
+```
+
+Se valida con el conjunto de datos creado
+
+```{r}
+sdem_dataset
+```
+
+```{r}
+open_csv_dataset(
+  sources = archivo_csv,
+  convert_options = 
+  parse_options = csv_parse_options(
+    ignore_empty_lines = FALSE
+  )
+)
+```
+
+Al valida este error con la IA, existen dos alternativas
+
+1. Especificar el tipo de dato en la columna donde existe el error
+2. Definir el tipo de dato en cada columna
+
+El primer caso sería así
+
+```{r}
+archivo_csv
+```
+
+```{r}
+sdem_dataset2 <- open_csv_dataset(
+  sources = archivo_csv,
+  col_types = schema(cve_loc = string()),
+  na = c("", "NA", "''")
+)
+
+sdem_dataset2
+```
+
+Se exporta
+
+```
+write_dataset(
+  dataset = sdem_dataset2,
+  path = tempdir(),
+  format = "parquet"
+)
+```
+
+Persiste el error
+
+```
+Error: Invalid: In CSV column #2: Row #7296: CSV conversion error to int64: invalid value ''
+```
+
+```{{r}}
+write_csv_dataset(
+  dataset = sdem_dataset2,
+  path = tempdir(),
+  # na = c("", "NA", "''")
+  na = "''"
+)
+```
+
+Mismo error
+
+```
+Error: Invalid: In CSV column #2: Row #7296: CSV conversion error to int64: invalid value ''
+```
+
+Incluso con `write_parquet`
+
+```{{r}}
+write_parquet(
+  x = sdem_dataset2,
+  sink = tempfile(fileext = ".parquet")
+)
+```
+
+Arroja error
+
+```
+Error: Invalid: In CSV column #2: Row #7296: CSV conversion error to int64: invalid value ''
+```
+
+La otra opción es creando una lista
+
+```{r}
+# encabezados <- names(read_csv_arrow(archivo_csv, n_rows = 0))
+encabezado <- names(sdem_arrow)
+tamanio <- length(names(sdem_arrow))
+
+tipo <- vector(mode = "character", length = length(names(sdem_arrow)))
+i <- vector(mode = "integer", length = length(names(sdem_arrow)))
+
+for (i in 1:tamanio) {
+  tipo[[i]] <- "string()"
+}
+
+tipo
+```
+
+De otro modo
+
+```{r}
+rep(list(string()), tamanio)
+    
+setNames(rep(list(string()), tamanio), encabezado)
+```
+
+
+```{r}
+col_tipos <- setNames(rep(list(string()), tamanio), encabezado)
+
+schema(col_tipos)
+```
+
+```{r}
+col_tipos <- schema(col_tipos)
+```
+
+Se vuelve a intentar
+
+```{r}
+open_csv_dataset(
+  sources = archivo_csv,
+  schema = col_tipos,
+)
+```
+
+Se vuelve a exportar
+
+```{{r}}
+sdem_dataset2 <- open_csv_dataset(
+  sources = archivo_csv,
+  schema = col_tipos,
+)
+
+write_dataset(
+  dataset = sdem_dataset2,
+  path = tempdir(),
+  format = "parquet"
+)
+
+write_parquet(
+  x = sdem_dataset2,
+  sink = tempfile(fileext = ".parquet")
+)
+```
+
+Error
+
+```
+Error: Invalid: Could not open CSV input source 'C:/Users/Ramon GC/AppData/Local/Temp/Rtmp2z5giI/ENOE_SDEMT126.csv': Invalid: In CSV column #47: Row #1662: CSV conversion error to string: invalid UTF8 data
+```
+
+Todavía tengo problemas para pasar de csv dataset a parquet. Se hará el intento con formato DBF
+
+
+

@@ -1,0 +1,193 @@
+---
+date: "01-08-2026"
+format: gfm
+---
+
+Se sigue validando el paquete `arrow`, en el documento anterior `bitacora/paquete_arrow.qmd` se encontró problemas al pasar de archivo CSV -> datasets -> parquet. No así en: archivo CSV -> tibble -> parquet. Por lo tanto, se intentará con otro formato: DBF.
+
+```{r}
+#| label: setup
+#| message: false
+#| warning: false
+
+library(tidyverse)
+# library(here)
+library(arrow)
+library(curl)
+```
+
+De acuerdo a la IA, el último error presentado es por el "idioma" (encoding) especificado, Apache Arrow trabaja con UTF-8, el universal, mientras que los microdatos del INEGI con "latin1". Aquello se puede especificar en `csv_read_options` cuando se utiliza `open_csv_dataset`.
+
+Se hace este último intento
+
+```{r}
+curl_download(
+  url = "https://www.inegi.org.mx/contenidos/programas/enoe/15ymas/microdatos/enoe_2026_trim1_csv.zip",
+  destfile = tempfile(fileext = ".zip"),
+  quiet = FALSE
+)
+```
+
+Supuestamente esa función arroja error si el enlace no existe, se valida
+
+```{{r}}
+curl_download(
+  url = "https://www.inegi.org.mx/conaaatenidos/programas/enoe/15ymas/microdatos/enoe_2026_trim1_csv.zip",
+  destfile = tempfile(fileext = ".zip")
+)
+```
+
+Sí lo ejecuta, y no arroja error
+
+```{r}
+list.files(tempdir(), full.names = TRUE)
+```
+
+Por tanto, sí genera el archivo zip.
+
+Se extrae archivo
+
+```{r}
+modulo <- unzip(
+  zipfile = list.files(tempdir(), pattern = "\\.zip", full.names = TRUE),
+  list = TRUE
+)$Name
+
+unzip(
+  list.files(tempdir(), pattern = "\\.zip", full.names = TRUE),
+  files = grepv("sdem", modulo, ignore.case = TRUE),
+  exdir = tempdir()
+)
+```
+
+Se valida
+
+```{r}
+csv <- list.files(tempdir(), pattern = "\\.csv", full.names = TRUE)
+csv
+```
+
+Ahora se crea la lista que contendrá el nombre de las columnas
+
+```{r}
+# nombres <- 
+  names(read_csv(csv, n_max = 0))
+
+nombres <- names(read_csv(csv, n_max = 0))
+
+nombres
+```
+
+```{r}
+nombres <- read_csv(csv, n_max = 0)
+
+spec(nombres)
+```
+
+Si se pasa a tibble
+
+```{{r}}
+tibble(
+  x = spec(nombres)
+)
+```
+
+Arroja
+
+```
+Error in `tibble()`:
+! All columns in a tibble must be vectors.
+✖ Column `x` is a `col_spec` object.
+Run `rlang::last_trace()` to see where the error occurre
+```
+
+```{r}
+x <- as.list(spec(nombres))$cols
+
+x
+```
+
+```{r}
+sub(
+  pattern = "col_character()",
+  replacement = "string()",
+  x = x[[2]]
+)
+
+x2 <- sub(
+  pattern = "col_character()",
+  replacement = "string()",
+  x = as.vector(spec(nombres))$cols
+)
+
+as.list(x2)
+```
+
+Se crea lista
+
+```{r}
+setNames(
+  object = rep(list(string()), times = length(nombres)),
+  nm = nombres
+)
+
+tipo <- setNames(
+  object = rep(list(string()), times = length(nombres)),
+  nm = nombres
+)
+
+tipo <- schema(tipo)
+
+tipo
+```
+
+Se carga archivo
+
+```{r}
+open_csv_dataset(
+  sources = csv,
+  schema = tipo,
+  # col_names = nombres,
+  read_options = csv_read_options(
+    # encabezado arroja error si no se especifica
+    column_names = nombres,
+    # idioma
+    encoding = "latin1"
+  )
+)
+
+sdem <- open_csv_dataset(
+  sources = csv,
+  schema = tipo,
+  na = c("", "NA", "''"),
+  # col_names = nombres,
+  read_options = csv_read_options(
+    # encabezado arroja error si no se especifica
+    column_names = nombres,
+    # idioma
+    encoding = "latin1"
+  )
+)
+```
+
+Se almacena
+
+```{{r}}
+write_dataset(
+  sdem,
+  path = tempdir(),
+  format = "parquet"
+)
+
+write_parquet(
+  x = sdem,
+  sink = tempfile(fileext = ".parquet")
+)
+```
+
+Arroja el mismo error
+
+```
+Error: Invalid: Could not open CSV input source 'C:/Users/Ramon GC/AppData/Local/Temp/RtmpCi4bDY/ENOE_SDEMT126.csv': Invalid: In CSV column #47: Row #1662: CSV conversion error to string: invalid UTF8 data
+```
+
