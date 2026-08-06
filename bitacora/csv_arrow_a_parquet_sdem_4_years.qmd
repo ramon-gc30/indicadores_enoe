@@ -1,0 +1,557 @@
+---
+date: "03-08-2026"
+format: gfm
+---
+
+En `bitacora/arrow_sdem_years.qmd`, se encontró que sí funciona el flujo
+
+```
+csv_arrow -> tibble -> parquet -> dataset
+```
+
+Así pues, se intentará para el periodo de interés: 4 años. Para lo cual, se utilizará el contenido de la función `descargar_n_modulos`, excepto que queremos cargarlo con `read_csv_arrow`
+
+Librerías requeridas
+
+```{r}
+#| label: setup
+#| message: false
+#| warning: false
+
+library(tidyverse)
+library(here)
+library(arrow)
+
+source(here::here("scripts", "0_funciones.R"))
+```
+
+Contenido de la función `descargar_n_modulos`, se cambia algunas funciones por `replicate`
+
+```{r}
+year_actual <- 2026
+trimestre_actual <- 1 
+n_year <- 4
+modulo <- "sdem"
+  
+  # obtener enlaces ----
+  url <- obtener_n_enlaces(year_actual, trimestre_actual, n_year)
+  
+  # crear archivos temporales -----
+  
+  tamanio <- length(url)
+  # i <- vector(mode = "integer", length = tamanio)
+  archivos_temp <- vector(mode = "character", length = tamanio)
+  # 
+  # for (i in 1:tamanio) {
+  #   archivos_temp[[i]] <- tempfile(fileext = ".zip")
+  # }
+  
+  archivos_temp <- replicate(tamanio, tempfile(fileext = ".zip"))
+  
+  # descargar microdatos -----
+  
+  options(timeout = max(900, getOption("timeout")))
+  
+  # i <- vector(mode = "integer", length = tamanio)
+  i <- replicate(tamanio, 0)
+  # si ningún elemento contiene dicha expresión devuelve un vector vacío
+  periodo_sn_enlace <- grep(
+    x = url,
+    pattern = "No existe enlace"
+  )
+  
+  # si el vector está vacío le asigna valor 0
+  if (is_empty(periodo_sn_enlace)) {periodo_sn_enlace <- 0}
+  
+  for (i in 1:tamanio) {
+    if ( i != periodo_sn_enlace ) {
+      download.file(
+        url = url[[i]],
+        destfile = archivos_temp[[i]]
+      )
+    }
+  }
+  
+  # extraer módulo especificado -----
+  
+  tamanio <- length(archivos_temp)
+  # i <- vector(mode = "integer", length = tamanio)
+  i <- replicate(tamanio, 0)
+  
+  for (i in 1:tamanio) {
+    
+    if ( i != periodo_sn_enlace ) {
+      microdatos <- unzip(
+        zipfile = archivos_temp[[i]],
+        list = TRUE,
+      )$Name
+      
+      unzip(
+        zipfile = archivos_temp[[i]],
+        list = FALSE,
+        files = grepv(modulo, microdatos, ignore.case = TRUE),
+        exdir = tempdir(),
+        overwrite = TRUE
+      )
+    }
+  }
+  
+  # carga -----
+  
+  # ruta
+  archivos_extraidos <- list.files(
+    path = tempdir(),
+    pattern = "\\.csv",
+    full.names = TRUE,
+    ignore.case = TRUE
+  )
+  
+  # nombre
+  nombre_archivo <- basename(archivos_extraidos)
+  
+  nombre_archivo <- sub(
+    x = nombre_archivo,
+    pattern = "\\.csv",
+    replacement = "",
+    ignore.case = TRUE
+  )
+  
+  nombre_archivo <- sub(
+    x = nombre_archivo,
+    pattern = "ENOE_|ENOEN_",
+    replacement = "",
+    ignore.case = TRUE
+  )
+  
+  # nombre_archivo <- tolower(nombre_archivo)
+  
+  # definir como tibbles
+  
+  # crea n objetos, según el número de archivos, tipo tibble
+  # tamanio <- length(archivos_extraidos)
+  # i <- vector(mode = "integer", length = tamanio)
+  # 
+  # for (i in 1:tamanio) {
+  #   assign(
+  #     x = nombre_archivo[[i]],
+  #     value = read_csv(
+  #       file = archivos_extraidos[[i]],
+  #       col_types = cols(.default = col_character())
+  #     )
+  #   )
+  # }
+  
+  # crea un objeto tipo lista
+  # fuente R for data science (2a ed.) sección 26.3.4
+  n_modulos <- archivos_extraidos |> 
+    set_names(nm = nombre_archivo) |> 
+    map( 
+      # \(archivos_extraidos) # para añadir argumentos 
+      # readr::read_csv(
+      #   archivos_extraidos, 
+      #   col_types = cols(.default = col_character())
+      # )
+      read_csv_arrow
+    ) 
+  
+  # eliminar archivos comprimidos -----
+  
+  unlink(
+    list.files(
+      path = tempdir(),
+      pattern = "\\.zip$|\\.csv$",
+      full.names = TRUE
+    )
+  )
+```
+
+Se tiene el objeto `n_modulos` que contiene los 17 módulos y `archivos_extraidos` que contiene la ruta de los 17 archivos CSV.
+
+```{r}
+names(n_modulos)
+archivos_extraidos
+```
+
+Ahora necesitamos crear el vector que contendrá la ruta de salida de los 17 archivos parquet.
+
+```{r}
+archivos_parquet <- sub("\\.csv", "\\.parquet", archivos_extraidos)
+
+# archivos_extraidos
+archivos_parquet
+nombre_archivo
+```
+
+Ahora necesitamos guardar estos archivos como formato parquet. Para evitar errores de nombre de archivo, se usará `grep`
+
+```{r}
+grep(names(n_modulos)[[1]], archivos_parquet)
+archivos_parquet[[grep(names(n_modulos)[[1]], archivos_parquet)]]
+```
+
+A través del bucle PARA
+
+```{r}
+nombre_archivo <- names(n_modulos)
+tamanio <- length(nombre_archivo)
+i <- replicate(tamanio, 0)
+
+for (i in 1:tamanio) {
+  write_parquet(
+    x = n_modulos[[i]],
+    sink = archivos_parquet[[grep(nombre_archivo[[i]], archivos_parquet)]]
+    # mejor
+    # sink = grepv(nombre_archivo[[i]], archivos_parquet)
+  )
+}
+```
+
+Se valida
+
+```{r}
+tibble(
+  nombre = basename(archivos_parquet),
+  tamanio = (file.size(archivos_parquet)) / 1024**2
+)
+```
+
+Y se valida en el directorio temporal
+
+```{r}
+list.files(tempdir())
+```
+
+Listo! Ya están creados nuestros 17 archivos en el directorio temporal. Recordemos que `archivos_parquet` contiene la ruta de dichos archivos
+
+```{r}
+archivos_parquet
+```
+
+Por tanto, ese será la fuente para crear nuestro conjunto de datos.
+
+Antes de continuar eliminamos el objeto que contiene los 17 módulos en formato CSV Arrow
+
+```{r}
+remove(n_modulos)
+```
+
+Se valida
+
+```{r}
+objects(pattern = "n_modulos")
+
+object.size(objects(pattern = "n_modulos"))
+```
+
+Solamente aparece la función, no la lista.
+
+Ahora se carga nuestro conjunto de datos
+
+```{r}
+modulos_dataset <- open_dataset(
+  sources = archivos_parquet,
+  format = "parquet"
+)
+
+schema(modulos_dataset)
+```
+
+Se hará una consulta básica, el tamaño de cada tabla
+
+```{r}
+# dato_proc <- 
+  modulos_dataset |> 
+  mutate(archivo = arrow::add_filename()) |> 
+  compute() |> 
+  count(archivo) |> 
+  collect()
+
+# dato_proc
+```
+
+Ejecutar muchas veces dicha consulta generó error y "reventó" el programa. Tuve que reiniciar el ordenador. Posiblemente esto se deba porque guardé los 17 archivos parquet en el directorio temporal, tendré que guardarlos en el directorio del proyecto.
+
+Se vuelve a ejecutar las funciones.
+
+Tenemos otra vez el objeto tipo lista
+
+```{r}
+names(n_modulos)
+```
+
+Pero no guardaremos los archivos en el directorio temporal, mejor en el directorio del proyecto
+
+```{r}
+here::here()
+```
+
+Algo como
+
+```{r}
+paste(here::here(), "/datos/", names(n_modulos), ".parquet", sep = "")
+```
+
+Y se vuelve a realizar lo previo desde ese punto
+
+```{r}
+# en el directorio del proyecto
+archivos_parquet <- paste(here::here(), "/datos/", names(n_modulos), ".parquet", sep = "")
+
+nombre_archivo <- names(n_modulos)
+tamanio <- length(nombre_archivo)
+i <- replicate(tamanio, 0)
+
+for (i in 1:tamanio) {
+  write_parquet(
+    x = n_modulos[[i]],
+    # sink = archivos_parquet[[grep(nombre_archivo[[i]], archivos_parquet)]]
+    # mejor
+    sink = grepv(nombre_archivo[[i]], archivos_parquet)
+  )
+}
+```
+
+Se valida
+
+```{r}
+tibble(
+  nombre = archivos_parquet,
+  tamanio = (file.size(archivos_parquet)) / 1024**2
+)
+```
+
+Se elimina objeto tipo lista
+
+```{r}
+remove(n_modulos)
+```
+
+Se carga nuestro conjunto de datos
+
+```{r}
+# archivos_parquet
+
+modulos_dataset <- open_dataset(
+  sources = archivos_parquet,
+  format = "parquet"
+)
+
+schema(modulos_dataset)
+```
+
+Se hace una consulta: total de observaciones (filas)
+
+```{r}
+datos_proc <- modulos_dataset |> 
+  count() |> 
+  collect()
+
+datos_proc
+```
+
+El total de observaciones de los 17 archivos es poco más de 7 millones!!!
+
+Por archivo
+
+```{r}
+datos_proc <- modulos_dataset |> 
+  mutate(archivo = add_filename()) |> 
+  compute() |> 
+  count(archivo)
+
+datos_proc |> 
+  collect()
+```
+
+Esta última manera es cómo lo hacen los autores de R for data science (2nd ed.), véase sección 22.5 <https://davidrsch.github.io/r4ds-es/arrow.html#usando-dplyr-con-arrow>
+
+Ya está!!!!
+
+Por fortuna, los archivos parquet ya están guardados en el proyecto actual. No tengo que repetir todo el procedimiento.
+
+En resumen, el procedimiento para pasar de archivos CSV a parquet es:
+
+```{{r}}
+#| label: setup
+#| message: false
+#| warning: false
+
+library(tidyverse)
+library(here)
+library(arrow)
+
+source(here::here("scripts", "0_funciones.R"))
+
+year_actual <- 2026
+trimestre_actual <- 1 
+n_year <- 4
+modulo <- "sdem"
+  
+  # obtener enlaces ----
+  url <- obtener_n_enlaces(year_actual, trimestre_actual, n_year)
+  
+  # crear archivos temporales -----
+  
+  tamanio <- length(url)
+  # i <- vector(mode = "integer", length = tamanio)
+  archivos_temp <- vector(mode = "character", length = tamanio)
+  # 
+  # for (i in 1:tamanio) {
+  #   archivos_temp[[i]] <- tempfile(fileext = ".zip")
+  # }
+  
+  archivos_temp <- replicate(tamanio, tempfile(fileext = ".zip"))
+  
+  # descargar microdatos -----
+  
+  options(timeout = max(900, getOption("timeout")))
+  
+  # i <- vector(mode = "integer", length = tamanio)
+  i <- replicate(tamanio, 0)
+  # si ningún elemento contiene dicha expresión devuelve un vector vacío
+  periodo_sn_enlace <- grep(
+    x = url,
+    pattern = "No existe enlace"
+  )
+  
+  # si el vector está vacío le asigna valor 0
+  if (is_empty(periodo_sn_enlace)) {periodo_sn_enlace <- 0}
+  
+  for (i in 1:tamanio) {
+    if ( i != periodo_sn_enlace ) {
+      download.file(
+        url = url[[i]],
+        destfile = archivos_temp[[i]]
+      )
+    }
+  }
+  
+  # extraer módulo especificado -----
+  
+  tamanio <- length(archivos_temp)
+  # i <- vector(mode = "integer", length = tamanio)
+  i <- replicate(tamanio, 0)
+  
+  for (i in 1:tamanio) {
+    
+    if ( i != periodo_sn_enlace ) {
+      microdatos <- unzip(
+        zipfile = archivos_temp[[i]],
+        list = TRUE,
+      )$Name
+      
+      unzip(
+        zipfile = archivos_temp[[i]],
+        list = FALSE,
+        files = grepv(modulo, microdatos, ignore.case = TRUE),
+        exdir = tempdir(),
+        overwrite = TRUE
+      )
+    }
+  }
+  
+  # carga -----
+  
+  # ruta
+  archivos_extraidos <- list.files(
+    path = tempdir(),
+    pattern = "\\.csv",
+    full.names = TRUE,
+    ignore.case = TRUE
+  )
+  
+  # nombre
+  nombre_archivo <- basename(archivos_extraidos)
+  
+  nombre_archivo <- sub(
+    x = nombre_archivo,
+    pattern = "\\.csv",
+    replacement = "",
+    ignore.case = TRUE
+  )
+  
+  nombre_archivo <- sub(
+    x = nombre_archivo,
+    pattern = "ENOE_|ENOEN_",
+    replacement = "",
+    ignore.case = TRUE
+  )
+  
+  # nombre_archivo <- tolower(nombre_archivo)
+  
+  # definir como tibbles
+  
+  # crea n objetos, según el número de archivos, tipo tibble
+  # tamanio <- length(archivos_extraidos)
+  # i <- vector(mode = "integer", length = tamanio)
+  # 
+  # for (i in 1:tamanio) {
+  #   assign(
+  #     x = nombre_archivo[[i]],
+  #     value = read_csv(
+  #       file = archivos_extraidos[[i]],
+  #       col_types = cols(.default = col_character())
+  #     )
+  #   )
+  # }
+  
+  # crea un objeto tipo lista
+  # fuente R for data science (2a ed.) sección 26.3.4
+  n_modulos <- archivos_extraidos |> 
+    set_names(nm = nombre_archivo) |> 
+    map( 
+      # \(archivos_extraidos) # para añadir argumentos 
+      # readr::read_csv(
+      #   archivos_extraidos, 
+      #   col_types = cols(.default = col_character())
+      # )
+      read_csv_arrow
+    ) 
+  
+  # eliminar archivos comprimidos -----
+  
+  unlink(
+    list.files(
+      path = tempdir(),
+      pattern = "\\.zip$|\\.csv$",
+      full.names = TRUE
+    )
+  )
+  
+  # exportar como tipo parquet
+  # en el directorio del proyecto
+  archivos_parquet <- paste(here::here(), "/datos/", names(n_modulos), ".parquet", sep = "")
+  
+  nombre_archivo <- names(n_modulos)
+  tamanio <- length(nombre_archivo)
+  i <- replicate(tamanio, 0)
+  
+  for (i in 1:tamanio) {
+    write_parquet(
+      x = n_modulos[[i]],
+      # sink = archivos_parquet[[grep(nombre_archivo[[i]], archivos_parquet)]]
+      # mejor
+      sink = grepv(nombre_archivo[[i]], archivos_parquet)
+    )
+  }
+  
+  # eliminar objeto lista
+  remove(n_modulos)
+  
+  # # cargar dataset
+  # modulos_dataset <- open_dataset(
+  #   sources = archivos_parquet,
+  #   format = "parquet"
+  # )
+```
+
+Observaciones
+
+* Crear carpeta `datos` si no existe, esto con `dir.exists` y `dir.create`
+
+```{r}
+dir.exists(here::here())
+dir.exists(paste(here::here(), "/ejemplo", sep = ""))
+file.path(here::here(), "ejemplo")
+```
+

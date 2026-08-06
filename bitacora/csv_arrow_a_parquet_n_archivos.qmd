@@ -1,0 +1,150 @@
+---
+date: "03-08-2026"
+format: gfm
+---
+
+En el documento previo: `bitacora/arrow_sdem_years.qmd` se encontró que sí funciona (o no genera error) el flujo:
+
+```
+CSV_arrow -> tibble -> parquet -> dataset
+```
+
+De momento, para un solo archivo. Ahora se intentará para $n$ archivos.
+
+```{r}
+#| label: setup
+#| warning: false
+#| message: false
+
+library(tidyverse)
+library(here)
+library(arrow)
+library(curl)
+
+source(here::here("scripts", "0_funciones.R"))
+```
+
+Ahora se importan los archivos con `read_csv_arrow`
+
+```{r}
+urls <- obtener_n_enlaces(2026, 1, 1)
+archivos_zip <- replicate(length(urls), tempfile(fileext = ".zip"))
+
+# options(timeout = max(900, getOption("timeout")))
+# descarga_estatus <- multi_download(urls, archivos_zip, resume = TRUE)
+multi_download(urls, archivos_zip, resume = TRUE, multi_timeout = Inf)
+
+# descarga_estatus <- as.vector(descarga_estatus$success)
+# if (descarga_estatus[[2]] == FALSE) {
+#   multi_download(urls, archivos_zip)
+# } 
+```
+
+La función `curl::multi_download` solamente descarga un archivo la primera vez que se ejecuta, y aunque se vuelva a ejecutar con un operador SI, no descarga los archivos restantes. No conviene, de momento, nos quedamos con `download.file`. Ni añadiendo `multi_timeout` ni `options`.
+
+```{r}
+i <- vector(mode = "integer", length = length(archivos_zip))
+modulo <- vector(mode = "character", length = length(archivos_zip))
+
+for (i in 1:length(archivos_zip)) {
+  modulos <- unzip(archivos_zip[[i]], list = TRUE)$Name
+  
+  unzip(
+    zipfile = archivos_zip[[i]],
+    files = grepv("sdem", modulos, ignore.case = TRUE),
+    exdir = tempdir()
+  )
+}
+
+archivos_csv <- list.files(tempdir(), "\\.csv$", full.names = TRUE)
+
+nombres <- basename(archivos_csv)
+nombres <- sub("ENOE_", "", nombres)
+nombres <- sub("\\.csv", "", nombres)
+
+datos_arrow <- archivos_csv |> 
+  set_names(nombres) |> 
+  map(read_csv_arrow)
+
+unlink(list.files(tempdir(), "\\.zip|\\.csv", full.names = TRUE))
+
+# names(datos_arrow)
+```
+
+Ahora se crea los archivos parquet
+
+```{r}
+archivos_pqt <-  sub("\\.csv$", "\\.parquet", archivos_csv)
+# archivos_pqt
+```
+
+Ahora se almacenan
+
+```{r}
+# archivos_csv
+# archivos_pqt
+# names(datos_arrow)
+
+i <- vector("integer", length = length(archivos_pqt))
+
+for (i in 1:length(archivos_pqt)) {
+  write_parquet(
+    x = datos_arrow[[i]],
+    sink = archivos_pqt[[i]]
+  ) 
+}
+```
+
+Se valida
+
+```{r}
+list.files(tempdir(), "\\.parquet", full.names = TRUE)
+archivos_pqt
+```
+
+Ahora se carga datasets
+
+```{r}
+dataset <- open_dataset(archivos_pqt)
+schema(dataset)
+```
+
+Se valida
+
+```{r}
+dataset |> 
+  count() |> 
+  collect()
+```
+
+2,105,827
+
+Por grupo
+
+```{r}
+dataset |> 
+  mutate(archivo = add_filename()) |> 
+  compute() |> 
+  group_by(archivo) |> 
+  summarise(
+    n = n(),
+    tot = sum(fac_tri)
+  ) |> 
+  collect()
+```
+
+Se valida tiempo de ejecución
+
+```{r}
+dataset |> 
+  mutate(archivo = add_filename()) |> 
+  compute() |> 
+  group_by(archivo) |> 
+  summarise(
+    n = n(),
+    tot = sum(fac_tri)
+  ) |> 
+  collect() |> 
+  system.time()
+```
+
