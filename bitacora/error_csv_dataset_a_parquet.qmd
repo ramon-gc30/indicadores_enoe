@@ -1,0 +1,221 @@
+---
+date: "16-08-2026"
+format: gfm
+---
+
+Introducción
+
+Previamente en `bitacora/paquete_arrow.qmd`, se encontró un error en el siguiente flujo de trabajo:
+
+```
+CSV_dataset -> parquet
+```
+
+Por temas de codificación. 
+
+En este espacio, se validará dicho error
+
+```{r}
+#| label: setup
+#| message: false
+#| warning: false
+
+library(tidyverse)
+library(arrow)
+library(here)
+library(parquetize)
+```
+
+Los archivos CSV se encuentran en la carpeta `datos`
+
+```{r}
+archivo_csv <- list.files(
+  here::here("datos"),
+  pattern = "\\.csv$",
+  full.names = TRUE
+)
+
+archivo_csv
+```
+
+Se cargan con `open_dataset`
+
+```{r}
+datos <- open_dataset(
+  sources = archivo_csv,
+  format = "csv"
+)
+
+schema(datos)
+```
+
+Como se vio en `bitacora/arrow_sdem_years.qmd`, la función por defecto convierte algunas columnas como tipo binario, en específico `cs_p21_des: binary`, cuando refiere:
+
+* 45 CS_P21_DES Especificación del otro motivo Carácter 50 Texto Descripción del otro motivo
+
+Fuente: <https://www.inegi.org.mx/contenidos/programas/enoe/15ymas/doc/enoe_123_fd_c_bas_amp.pdf> p. 19
+
+De hecho, si se intenta unificar arrojará error
+
+```{{r}}
+open_dataset(
+  sources = archivo_csv,
+  format = "csv",
+  unify_schemas = TRUE
+)
+
+Error in `open_dataset()`:
+! Type error: Unable to merge: Field par_c has incompatible types: string vs int64
+```
+
+Se intenta almacenar
+
+```{r}
+# archivo_csv
+archivo_parquet <- sub("\\.csv", "\\.parquet", archivo_csv)
+# archivo_parquet
+```
+
+
+```{{r}}
+write_parquet(
+  x = datos,
+  sink = archivo_parquet
+)
+
+Error: Invalid: Could not open CSV input source 'datos/ENOE_SDEMT126.csv': Invalid: In CSV column #47: Row #1662: CSV conversion error to string: invalid UTF8 data
+```
+
+```{{r}}
+write_dataset(
+  datos,
+  here::here("datos"),
+  format = "parquet"
+)
+
+Error: Invalid: Could not open CSV input source 'datos/ENOE_SDEMT325.csv': Invalid: In CSV column #47: Row #269: CSV conversion error to string: invalid UTF8 data
+```
+
+Se intenta con `parquetize`
+
+
+```{{r}}
+parquetize::csv_to_parquet(
+  path_to_file = archivo_csv,
+  path_to_parquet = archivo_parquet
+) 
+
+
+2.
+download_extract(path_to_file, filename_in_zip)
+1.
+parquetize::csv_to_parquet(path_to_file = archivo_csv, path_to_parquet = archivo_parquet)
+
+```
+
+Se tiene que hacer de forma iterativa
+
+```{{r}}
+i <- vector("integer", length = length(archivo_parquet))
+
+for (i in 1:length(archivo_parquet)) {
+  parquetize::csv_to_parquet(
+    path_to_file = archivo_csv[[i]],
+    path_to_parquet = archivo_parquet[[i]]
+  ) 
+}
+```
+
+```
+Error en gsub("\"[^\"]*\"", "", lines): input string 15 is invalid
+```
+
+Se observa que arroja error en:
+
+* Especificar directamente la exportación `write_parquet`
+* Con función `parquetize::csv_to_parquet`
+
+La solución que menciona la IA es especificar:
+
+* Codificación (encoding): LATIN-1, pero arrow requiere forsozamente que sea UTF-8
+* Todas las columnas como tipo cadena de texto (*string*)
+
+Sin embargo, modificando dichos argumentos persiste el error, véase `bitacora/paquete_arrow_2.qmd`
+
+También se puede solucionar con el siguiente flujo:
+
+```
+CSV -> tibble -> parquet -> dataset
+```
+
+El tibble se puede obtener:
+
+1. `readr::read_csv`
+2. `arrow::read_csv_arrow`
+
+Mientras que el archivo parquet con `write_parquet`
+
+Véase `bitacora/arrow_sdem_years.qmd`
+
+Ni especificando la columna de posible error de codificación como cadena de texto evita el error
+
+```{{r}}
+open_csv_dataset(
+  sources = archivo_csv,
+  col_types = schema(cs_p21_des = string()),
+  read_options = csv_read_options(
+    # codificación
+    encoding = "UTF-8"
+  )
+)
+
+Error in `open_dataset()`:
+! Invalid: Error creating dataset. Could not read schema from 'C:/Prog/indicadores_enoe/datos/ENOE_SDEMT125.csv'. Is this a 'csv' file?: Could not open CSV input source 'C:/Prog/indicadores_enoe/datos/ENOE_SDEMT125.csv': Invalid: In CSV column #44: Row #310: CSV conversion error to string: invalid UTF8 data
+```
+
+No obstante, como se encontró en `bitacora/csv_arrow_a_parquet_sdem_4_years.qmd` este error no pasa si se carga como tibble con `read_csv_arrow`
+
+```{r}
+datos <- read_csv_arrow(file = archivo_csv[[1]])
+
+datos |> 
+  select(contains("_des")) |> 
+  head(5)
+```
+
+Aunque tenga el mismo tipo de dato
+
+```{r}
+archivo_csv[[1]]
+archivo_parquet[[1]]
+
+write_parquet(
+  datos,
+  sink = archivo_parquet[[1]]
+)
+```
+
+Se valida
+
+```{r}
+datos <- open_dataset(
+  archivo_parquet[[1]],
+  format = "parquet"
+)
+
+schema(datos)
+```
+
+```{r}
+datos |> 
+  group_by(sex) |> 
+  summarise(
+    n = n(),
+    tot = sum(fac_tri)
+  ) |> 
+  mutate(prop = tot / sum(tot)) |> 
+  collect()
+```
+
+Sin embargo, con `read_csv_arrow` no se tiene la certeza de que se pueda unificar las columnas y en consecuencia leer todas las columnas. Por eso, en las funciones que automatizan la extracción de microdatos de la ENOE lo cargo con `readr::read_csv(..., col_types = cols(.default = col_character()))`
+
